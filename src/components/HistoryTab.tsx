@@ -22,12 +22,14 @@ interface HistoryTabProps {
   transactions: StockTransaction[];
   oils: OilItem[];
   userName: string;
+  isAdmin?: boolean;
 }
 
 export const HistoryTab: React.FC<HistoryTabProps> = ({
   transactions,
   oils,
   userName,
+  isAdmin = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'dispense' | 'receive'>('all');
@@ -146,6 +148,24 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Read-Only Notice for Non-Admins */}
+      {!isAdmin && (
+        <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between gap-3 text-amber-950 no-print text-xs sm:text-sm shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🔒</span>
+            <div>
+              <p className="font-bold">โหมดดูข้อมูลประวัติ (Read-Only)</p>
+              <p className="text-xs text-amber-800">
+                สิทธิ์การแก้ไขหรือลบประวัติสงวนสิทธิ์เฉพาะ <strong>chalermpat.korat1499@gmail.com</strong> เท่านั้น (ท่านสามารถค้นหา กรอง และส่งออก Excel ได้ตามปกติ)
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 bg-amber-200 text-amber-900 rounded-lg font-bold text-xs whitespace-nowrap">
+            ส่งออก Excel ได้
+          </span>
+        </div>
+      )}
+
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
@@ -277,7 +297,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   <th className="py-3.5 px-3 text-right">เลขไมล์ (กม.)</th>
                   <th className="py-3.5 px-3">ผู้บันทึก</th>
                   <th className="py-3.5 px-3">หมายเหตุ</th>
-                  <th className="py-3.5 px-4 text-center">จัดการ</th>
+                  {isAdmin && <th className="py-3.5 px-4 text-center">จัดการ</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -352,29 +372,31 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         {tx.referenceNote || '-'}
                       </td>
 
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(tx)}
-                            title="แก้ไขข้อมูลรายการนี้"
-                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTxToDelete(tx);
-                              setDeleteError(null);
-                            }}
-                            title="ลบรายการนี้ (ระบบจะคืน/หักยอดสต๊อกให้อัตโนมัติ)"
-                            className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {isAdmin && (
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(tx)}
+                              title="แก้ไขข้อมูลรายการนี้"
+                              className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTxToDelete(tx);
+                                setDeleteError(null);
+                              }}
+                              title="ลบรายการนี้ (ระบบจะคืน/หักยอดสต๊อกให้อัตโนมัติ)"
+                              className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

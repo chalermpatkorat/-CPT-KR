@@ -74,6 +74,15 @@ export interface UserProfile {
   lastLoginAt: string;
 }
 
+export const ADMIN_EMAIL = 'chalermpat.korat1499@gmail.com';
+
+export const isUserAdmin = (emailOrUser?: string | { email?: string | null } | null): boolean => {
+  if (!emailOrUser) return false;
+  const email = typeof emailOrUser === 'string' ? emailOrUser : emailOrUser.email;
+  if (!email) return false;
+  return email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+};
+
 export interface AdBlueRefillRecord {
   id: string;
   vehicleId?: string; // รหัสอ้างอิงรถในระบบ

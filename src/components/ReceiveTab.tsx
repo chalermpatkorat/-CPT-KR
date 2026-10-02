@@ -9,12 +9,14 @@ import {
   Clock,
   User,
   Truck,
-  Plus
+  Plus,
+  ShieldAlert
 } from 'lucide-react';
 
 interface ReceiveTabProps {
   oils: OilItem[];
   userName: string;
+  isAdmin: boolean;
   preselectedOilId?: string | null;
   onOpenAddNewOil: () => void;
 }
@@ -22,6 +24,7 @@ interface ReceiveTabProps {
 export const ReceiveTab: React.FC<ReceiveTabProps> = ({
   oils,
   userName,
+  isAdmin,
   preselectedOilId,
   onOpenAddNewOil,
 }) => {
@@ -59,6 +62,11 @@ export const ReceiveTab: React.FC<ReceiveTabProps> = ({
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    if (!isAdmin) {
+      setErrorMsg('คุณไม่มีสิทธิ์บันทึกรับเข้าสต๊อก (สิทธิ์การบันทึก/แก้ไขจำกัดเฉพาะ chalermpat.korat1499@gmail.com เท่านั้น)');
+      return;
+    }
 
     if (!selectedOil) {
       setErrorMsg('กรุณาเลือกชนิดสินค้าที่รับเข้า');
@@ -324,7 +332,15 @@ export const ReceiveTab: React.FC<ReceiveTabProps> = ({
             />
           </div>
 
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+          {/* Permission Warning for Non-Admins */}
+          {!isAdmin && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2.5 text-amber-900 text-xs">
+              <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span>โหมดดูข้อมูล: สิทธิ์บันทึกรับเข้าสินค้าจำกัดเฉพาะ <strong>chalermpat.korat1499@gmail.com</strong> เท่านั้น</span>
+            </div>
+          )}
+
+          <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="text-xs text-slate-500 flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-slate-400" />
               <span>ผู้บันทึก: <strong>{userName || 'สมาชิก'}</strong></span>
@@ -332,14 +348,20 @@ export const ReceiveTab: React.FC<ReceiveTabProps> = ({
 
             <button
               type="submit"
-              disabled={loading || amountNumber <= 0}
-              className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-md shadow-emerald-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+              disabled={loading || !isAdmin || amountNumber <= 0}
+              className={`px-6 py-2.5 font-bold rounded-xl shadow-md transition flex items-center justify-center gap-2 text-sm ${
+                !isAdmin
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-500/20 cursor-pointer disabled:opacity-50'
+              }`}
             >
               {loading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   <span>กำลังบันทึกรับเข้า...</span>
                 </>
+              ) : !isAdmin ? (
+                <span>เฉพาะ chalermpat.korat1499@gmail.com เท่านั้นที่บันทึกได้</span>
               ) : (
                 <>
                   <ArrowDownLeft className="w-4 h-4" />

@@ -28,6 +28,7 @@ interface NavbarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   user: AppUserSession | null;
+  isAdmin?: boolean;
   onLogout: () => void;
   oils: OilItem[];
   vehicles: Vehicle[];
@@ -44,6 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   user,
+  isAdmin = false,
   onLogout,
   oils,
   vehicles,
@@ -78,7 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'receive', label: 'รับเข้าสินค้า', icon: <ArrowDownLeft className="w-4 h-4" /> },
     {
       id: 'vehicles',
-      label: `ข้อมูลรถ (${factoryCountText})`,
+      label: `ประวัติถ่ายน้ำมันเครื่อง (${factoryCountText})`,
       icon: <Truck className="w-4 h-4" />,
       badge: vehiclesDueCount > 0 ? vehiclesDueCount : undefined,
     },
@@ -217,12 +219,36 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 )}
                 <div className="hidden sm:block text-left">
-                  <div className="text-xs font-semibold text-slate-800 line-clamp-1 max-w-[120px]">
-                    {user.displayName || user.email?.split('@')[0] || 'สมาชิก'}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-slate-800 line-clamp-1 max-w-[120px]">
+                      {user.displayName || user.email?.split('@')[0] || 'สมาชิก'}
+                    </span>
+                    {isAdmin ? (
+                      <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md border border-emerald-300">
+                        Admin
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-md border border-amber-300">
+                        Read-Only
+                      </span>
+                    )}
                   </div>
-                  <div className="text-[10px] text-emerald-600 flex items-center gap-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span>ออนไลน์</span>
+                  <div className="text-[10px] flex items-center gap-1 mt-0.5">
+                    {isAdmin ? (
+                      <span className="text-emerald-600 font-bold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        สิทธิ์แก้ไขข้อมูล
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onOpenAuthModal}
+                        title="คลิกเพื่อเข้าสู่ระบบด้วย Gmail ผู้ดูแลระบบ (chalermpat.korat1499@gmail.com)"
+                        className="text-amber-700 hover:underline font-bold text-[10px] cursor-pointer"
+                      >
+                        สลับเป็น Gmail ผู้ดูแล
+                      </button>
+                    )}
                   </div>
                 </div>
                 <button
@@ -235,14 +261,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onOpenAuthModal}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-xs"
-              >
-                <UserIcon className="w-3.5 h-3.5" />
-                <span>เข้าสู่ระบบ</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenAuthModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-xs"
+                >
+                  <UserIcon className="w-3.5 h-3.5" />
+                  <span>เข้าสู่ระบบ</span>
+                </button>
+              </div>
             )}
 
             {/* Mobile menu toggle button */}

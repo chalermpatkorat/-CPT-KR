@@ -17,6 +17,7 @@ import {
   deleteAdBlueRefill,
   exportAdBlueRefillsToExcel
 } from '../services/adblueService';
+import { recordDispense } from '../services/stockService';
 import * as XLSX from 'xlsx';
 import {
   Truck,
@@ -39,7 +40,8 @@ import {
   Printer,
   Droplets,
   Percent,
-  Layers
+  Layers,
+  ShieldAlert
 } from 'lucide-react';
 import { VehiclePrintModal } from './VehiclePrintModal';
 import { AdBlueRefillModal } from './AdBlueRefillModal';
@@ -50,7 +52,9 @@ interface VehiclesTabProps {
   factories?: FactoryItem[];
   adBlueRefills?: AdBlueRefillRecord[];
   adBlueOils?: OilItem[];
+  oils?: OilItem[];
   userName: string;
+  isAdmin?: boolean;
   onDispenseForVehicle: (licensePlate: string, currentMileage: number, vehicleId: string) => void;
 }
 
@@ -59,7 +63,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   factories = [],
   adBlueRefills = [],
   adBlueOils = [],
+  oils = [],
   userName,
+  isAdmin = false,
   onDispenseForVehicle,
 }) => {
   // Sub-view: 'vehicles' (ข้อมูลรถและรอบเปลี่ยนถ่าย) or 'adblue' (ประวัติเติม AdBlue แยกเฉพาะ)
@@ -111,6 +117,18 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const [serviceVehicle, setServiceVehicle] = useState<Vehicle | null>(null);
   const [serviceMileage, setServiceMileage] = useState('');
   const [serviceDate, setServiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [serviceDeductStock, setServiceDeductStock] = useState<boolean>(true);
+  const [serviceOilId, setServiceOilId] = useState<string>('');
+  const [serviceAmountLiters, setServiceAmountLiters] = useState<string>('4');
+  const [serviceSubmitting, setServiceSubmitting] = useState<boolean>(false);
+
+  // Filter available engine oils for service modal
+  const engineOils = oils.filter(
+    (o) =>
+      !o.name.toLowerCase().includes('adblue') &&
+      !o.name.includes('แอดบลู') &&
+      !o.viscosity.toLowerCase().includes('adblue')
+  );
 
   // Delete State
   const [vehicleToDelete, setVehicleToDelete] = useState<Vehicle | null>(null);
@@ -398,13 +416,44 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       return;
     }
 
+    const targetOil = engineOils.find((o) => o.id === serviceOilId) || engineOils[0];
+    const amountNum = parseFloat(serviceAmountLiters) || 4;
+
+    if (serviceDeductStock && targetOil && targetOil.currentStock < amountNum) {
+      alert(`สต๊อก ${targetOil.name} ไม่เพียงพอ (คงเหลือ ${targetOil.currentStock} ลิตร, ต้องการเบิก ${amountNum} ลิตร)`);
+      return;
+    }
+
+    setServiceSubmitting(true);
     try {
+      // 1. Update vehicle oil change cycle
       await recordOilChange(serviceVehicle.id, km, serviceDate, userName);
-      setSuccessToast(`บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรถ ${serviceVehicle.licensePlate} เรียบร้อยแล้ว`);
+
+      // 2. Link with stock: If checked, record dispense transaction
+      if (serviceDeductStock && targetOil) {
+        await recordDispense({
+          oil: targetOil,
+          amount: amountNum,
+          recipientOrVehicle: `${serviceVehicle.licensePlate} (${serviceVehicle.factory})`,
+          currentMileage: km,
+          referenceNote: `[เปลี่ยนถ่ายน้ำมันเครื่องรอบ 20,000 กม.] ไมล์ ${km.toLocaleString('th-TH')} กม.`,
+          date: new Date(serviceDate).toISOString(),
+          performedBy: userName,
+          vehicleId: serviceVehicle.id,
+        });
+      }
+
+      setSuccessToast(
+        `บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรถ ${serviceVehicle.licensePlate} เรียบร้อยแล้ว ` +
+        (serviceDeductStock && targetOil ? `(ตัดสต๊อก ${targetOil.name} จำนวน ${amountNum} ลิตร สำเร็จ)` : '')
+      );
       setServiceVehicle(null);
-      setTimeout(() => setSuccessToast(null), 3000);
-    } catch (err) {
+      setTimeout(() => setSuccessToast(null), 3500);
+    } catch (err: any) {
       console.error('Service error:', err);
+      alert(err.message || 'บันทึกเปลี่ยนถ่ายไม่สำเร็จ');
+    } finally {
+      setServiceSubmitting(false);
     }
   };
 
@@ -467,6 +516,24 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         </div>
       )}
 
+      {/* Permission / Read-Only Warning Banner */}
+      {!isAdmin && (
+        <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between gap-3 text-amber-950 no-print text-xs sm:text-sm shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="font-bold">โหมดดูข้อมูลและสั่งพิมพ์รายงาน (Read-Only)</p>
+              <p className="text-xs text-amber-800">
+                สิทธิ์การเพิ่ม ลบ หรือแก้ไขข้อมูลสงวนสิทธิ์เฉพาะ <strong>chalermpat.korat1499@gmail.com</strong> เท่านั้น (ผู้ใช้งานทั่วไปสามารถดูข้อมูล ค้นหา และสั่งพิมพ์รายงาน/ส่งออก Excel ได้ตามปกติ)
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 bg-amber-200 text-amber-900 rounded-lg font-bold text-xs whitespace-nowrap">
+            พิมพ์รายงานได้
+          </span>
+        </div>
+      )}
+
       {/* Top Banner with Sub-View Switcher & Actions */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div>
@@ -476,7 +543,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-1">
             {subView === 'vehicles'
-              ? 'ระบบติดตามข้อมูลรถ & รอบเปลี่ยนถ่ายน้ำมันเครื่อง'
+              ? 'ประวัติถ่ายน้ำมันเครื่อง (รอบเปลี่ยนถ่าย 20,000 กม.)'
               : 'ประวัติรายงานการเติมน้ำยาบำบัดไอเสีย AdBlue (แยกเฉพาะ)'}
           </h2>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
@@ -498,8 +565,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   : 'text-white hover:bg-white/10'
               }`}
             >
-              <Truck className="w-3.5 h-3.5" />
-              <span>ข้อมูลรถ ({vehicles.length})</span>
+              <Droplets className="w-3.5 h-3.5" />
+              <span>ประวัติถ่ายน้ำมันเครื่อง ({vehicles.length})</span>
             </button>
             <button
               type="button"
@@ -524,28 +591,32 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
               >
                 <Printer className="w-4 h-4 text-slate-950" />
-                <span>สั่งพิมพ์รายงานรถ</span>
+                <span>สั่งพิมพ์ประวัติถ่ายน้ำมันเครื่อง</span>
               </button>
 
-              <button
-                onClick={openAddModal}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ เพิ่มข้อมูลรถ</span>
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={openAddModal}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ เพิ่มข้อมูลรถ</span>
+                </button>
+              )}
             </>
           ) : (
             <>
               {/* AdBlue Sub-view Actions */}
-              <button
-                type="button"
-                onClick={handleOpenNewAdBlueRefill}
-                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ บันทึกเติม AdBlue</span>
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleOpenNewAdBlueRefill}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ บันทึกเติม AdBlue</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -567,19 +638,21 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             </>
           )}
 
-          {/* Manage Factories Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsFactoryModalOpen(true);
-              setFactoryActionError(null);
-              setFactoryActionSuccess(null);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md transition cursor-pointer border border-indigo-400/30"
-          >
-            <Building2 className="w-3.5 h-3.5 text-amber-300" />
-            <span>จัดการโรงงาน ({factoryList.length})</span>
-          </button>
+          {/* Manage Factories Button (Only for Admin) */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsFactoryModalOpen(true);
+                setFactoryActionError(null);
+                setFactoryActionSuccess(null);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md transition cursor-pointer border border-indigo-400/30"
+            >
+              <Building2 className="w-3.5 h-3.5 text-amber-300" />
+              <span>จัดการโรงงาน ({factoryList.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -893,43 +966,72 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
                           {/* Scheduled Call-in Due Date */}
                           <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSchedulingVehicle(vehicle);
-                                setScheduleInputDate(
-                                  vehicle.nextOilChangeDueDate ||
-                                  (cycle.estimatedDueDate ? cycle.estimatedDueDate.toISOString().slice(0, 10) : '')
-                                );
-                              }}
-                              title="คลิกเพื่อกำหนดหรือเปลี่ยนวันนัดหมายเรียกรถเข้า"
-                              className="group inline-flex flex-col items-center p-1.5 rounded-xl hover:bg-indigo-50 border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer text-left"
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <Calendar className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
-                                <span className="font-extrabold text-slate-900 text-xs sm:text-sm group-hover:text-indigo-700">
-                                  {cycle.formattedDueDate}
-                                </span>
+                            {isAdmin ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSchedulingVehicle(vehicle);
+                                  setScheduleInputDate(
+                                    vehicle.nextOilChangeDueDate ||
+                                    (cycle.estimatedDueDate ? cycle.estimatedDueDate.toISOString().slice(0, 10) : '')
+                                  );
+                                }}
+                                title="คลิกเพื่อกำหนดหรือเปลี่ยนวันนัดหมายเรียกรถเข้า"
+                                className="group inline-flex flex-col items-center p-1.5 rounded-xl hover:bg-indigo-50 border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer text-left"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm group-hover:text-indigo-700">
+                                    {cycle.formattedDueDate}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold ${
+                                    cycle.isManualDueDate
+                                      ? 'bg-indigo-100 text-indigo-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {cycle.isManualDueDate ? '📌 นัดหมายเอง' : '⚡ คำนวณอัตโนมัติ'}
+                                  </span>
+                                  <span className={`text-[10px] font-bold ${
+                                    isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-700' : 'text-slate-500'
+                                  }`}>
+                                    {isOverdue
+                                      ? '• เลยกำหนด'
+                                      : cycle.estimatedDaysRemaining === 0
+                                      ? '• วันนี้!'
+                                      : `• อีก ${cycle.estimatedDaysRemaining} วัน`}
+                                  </span>
+                                </div>
+                              </button>
+                            ) : (
+                              <div className="inline-flex flex-col items-center p-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-left">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                                  <span className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                                    {cycle.formattedDueDate}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold ${
+                                    cycle.isManualDueDate
+                                      ? 'bg-indigo-100 text-indigo-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {cycle.isManualDueDate ? '📌 นัดหมายเอง' : '⚡ คำนวณอัตโนมัติ'}
+                                  </span>
+                                  <span className={`text-[10px] font-bold ${
+                                    isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-700' : 'text-slate-500'
+                                  }`}>
+                                    {isOverdue
+                                      ? '• เลยกำหนด'
+                                      : cycle.estimatedDaysRemaining === 0
+                                      ? '• วันนี้!'
+                                      : `• อีก ${cycle.estimatedDaysRemaining} วัน`}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1 mt-0.5">
-                                <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold ${
-                                  cycle.isManualDueDate
-                                    ? 'bg-indigo-100 text-indigo-700'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {cycle.isManualDueDate ? '📌 นัดหมายเอง' : '⚡ คำนวณอัตโนมัติ'}
-                                </span>
-                                <span className={`text-[10px] font-bold ${
-                                  isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-700' : 'text-slate-500'
-                                }`}>
-                                  {isOverdue
-                                    ? '• เลยกำหนด'
-                                    : cycle.estimatedDaysRemaining === 0
-                                    ? '• วันนี้!'
-                                    : `• อีก ${cycle.estimatedDaysRemaining} วัน`}
-                                </span>
-                              </div>
-                            </button>
+                            )}
                           </td>
 
                           {/* Status */}
@@ -969,65 +1071,71 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
                           {/* Actions */}
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* Quick Dispense Oil */}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onDispenseForVehicle(vehicle.licensePlate, vehicle.currentMileage, vehicle.id)
-                                }
-                                title="เบิกน้ำมันเครื่องให้รถคันนี้ทันที"
-                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <ArrowUpRight className="w-3.5 h-3.5" />
-                                <span>เบิกน้ำมัน</span>
-                              </button>
+                            {isAdmin ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                {/* Quick Dispense Oil */}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onDispenseForVehicle(vehicle.licensePlate, vehicle.currentMileage, vehicle.id)
+                                  }
+                                  title="เบิกน้ำมันเครื่องให้รถคันนี้ทันที"
+                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <ArrowUpRight className="w-3.5 h-3.5" />
+                                  <span>เบิกน้ำมัน</span>
+                                </button>
 
-                              {/* Quick Refill AdBlue */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAdBlueRefillForVehicle(vehicle)}
-                                title="บันทึกการเติมน้ำยาบำบัดไอเสีย AdBlue ให้รถคันนี้"
-                                className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <Droplets className="w-3.5 h-3.5" />
-                                <span>+ AdBlue</span>
-                              </button>
+                                {/* Quick Refill AdBlue */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAdBlueRefillForVehicle(vehicle)}
+                                  title="บันทึกการเติมน้ำยาบำบัดไอเสีย AdBlue ให้รถคันนี้"
+                                  className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <Droplets className="w-3.5 h-3.5" />
+                                  <span>+ AdBlue</span>
+                                </button>
 
-                              {/* Record Oil Change Service */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setServiceVehicle(vehicle);
-                                  setServiceMileage(vehicle.currentMileage.toString());
-                                  setServiceDate(new Date().toISOString().slice(0, 10));
-                                }}
-                                title="บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่"
-                                className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
-                              >
-                                <Wrench className="w-4 h-4" />
-                              </button>
+                                {/* Record Oil Change Service */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setServiceVehicle(vehicle);
+                                    setServiceMileage(vehicle.currentMileage.toString());
+                                    setServiceDate(new Date().toISOString().slice(0, 10));
+                                  }}
+                                  title="บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่"
+                                  className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                                >
+                                  <Wrench className="w-4 h-4" />
+                                </button>
 
-                              {/* Edit Vehicle */}
-                              <button
-                                type="button"
-                                onClick={() => openEditModal(vehicle)}
-                                title="แก้ไขข้อมูลรถ"
-                                className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
+                                {/* Edit Vehicle */}
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(vehicle)}
+                                  title="แก้ไขข้อมูลรถ"
+                                  className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
 
-                              {/* Delete Vehicle */}
-                              <button
-                                type="button"
-                                onClick={() => setVehicleToDelete(vehicle)}
-                                title="ลบข้อมูลรถ"
-                                className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                                {/* Delete Vehicle */}
+                                <button
+                                  type="button"
+                                  onClick={() => setVehicleToDelete(vehicle)}
+                                  title="ลบข้อมูลรถ"
+                                  className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-200">
+                                โหมดอ่านอย่างเดียว
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1135,14 +1243,16 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleOpenNewAdBlueRefill}
-                className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-sm transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ บันทึกการเติม AdBlue</span>
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleOpenNewAdBlueRefill}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-sm transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ บันทึกการเติม AdBlue</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1233,24 +1343,30 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                         </td>
 
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleEditAdBlueRefill(r)}
-                              title="แก้ไขบันทึก"
-                              className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition cursor-pointer"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setAdBlueToDelete(r)}
-                              title="ลบบันทึก"
-                              className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                          {isAdmin ? (
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleEditAdBlueRefill(r)}
+                                title="แก้ไขบันทึก"
+                                className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAdBlueToDelete(r)}
+                                title="ลบบันทึก"
+                                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-200">
+                              ดูข้อมูลอย่างเดียว
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1570,7 +1686,67 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 />
               </div>
 
+              {/* Option to automatically deduct from stock and link with stock dispensing */}
+              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 space-y-2.5">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={serviceDeductStock}
+                    onChange={(e) => setServiceDeductStock(e.target.checked)}
+                    className="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <span>เบิกและตัดสต๊อกน้ำมันเครื่องด้วย (บันทึกลงประวัติสต๊อก)</span>
+                </label>
+                {serviceDeductStock && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        เลือกชนิดน้ำมันเครื่อง
+                      </label>
+                      <select
+                        value={serviceOilId || (engineOils[0]?.id || '')}
+                        onChange={(e) => setServiceOilId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-amber-300 rounded-lg bg-white outline-none font-medium"
+                      >
+                        {engineOils.map((oil) => (
+                          <option key={oil.id} value={oil.id}>
+                            {oil.name} ({oil.viscosity}) - เหลือ {oil.currentStock}L
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        จำนวนลิตรที่ใช้
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="1"
+                        value={serviceAmountLiters}
+                        onChange={(e) => setServiceAmountLiters(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-amber-300 rounded-lg bg-white outline-none font-bold"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const plate = serviceVehicle.licensePlate;
+                    const km = parseFloat(serviceMileage) || serviceVehicle.currentMileage;
+                    const id = serviceVehicle.id;
+                    setServiceVehicle(null);
+                    onDispenseForVehicle(plate, km, id);
+                  }}
+                  className="px-3 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 rounded-xl transition cursor-pointer flex items-center gap-1 mr-auto"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  <span>ไปหน้าเบิกสินค้า</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setServiceVehicle(null)}
@@ -1580,9 +1756,10 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md cursor-pointer"
+                  disabled={serviceSubmitting}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md cursor-pointer disabled:opacity-50"
                 >
-                  ยืนยันบันทึกรอบใหม่
+                  {serviceSubmitting ? 'กำลังบันทึก...' : 'ยืนยันบันทึกรอบใหม่'}
                 </button>
               </div>
             </form>

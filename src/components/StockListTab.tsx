@@ -21,6 +21,7 @@ import {
 interface StockListTabProps {
   oils: OilItem[];
   userName: string;
+  isAdmin: boolean;
   onQuickDispense: (oil: OilItem) => void;
   onQuickReceive: (oil: OilItem) => void;
 }
@@ -28,6 +29,7 @@ interface StockListTabProps {
 export const StockListTab: React.FC<StockListTabProps> = ({
   oils,
   userName,
+  isAdmin,
   onQuickDispense,
   onQuickReceive,
 }) => {
@@ -323,14 +325,16 @@ export const StockListTab: React.FC<StockListTabProps> = ({
           </select>
         </div>
 
-        {/* Add New Product Button */}
-        <button
-          onClick={openAddModal}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-amber-500/20 transition cursor-pointer flex-shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>เพิ่มข้อมูลสินค้าใหม่</span>
-        </button>
+        {/* Add New Product Button (Only for Admin) */}
+        {isAdmin && (
+          <button
+            onClick={openAddModal}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-md shadow-amber-500/20 transition cursor-pointer flex-shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>เพิ่มข้อมูลสินค้าใหม่</span>
+          </button>
+        )}
       </div>
 
       {/* Stock Cards Grid */}
@@ -466,22 +470,24 @@ export const StockListTab: React.FC<StockListTabProps> = ({
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => openEditModal(oil)}
-                      title="แก้ไขข้อมูลน้ำมันเครื่อง"
-                      className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-white rounded-lg transition cursor-pointer"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setOilToDelete(oil)}
-                      title="ลบข้อมูล"
-                      className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg transition cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEditModal(oil)}
+                        title="แก้ไขข้อมูลสินค้า"
+                        className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-white rounded-lg transition cursor-pointer"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setOilToDelete(oil)}
+                        title="ลบข้อมูล"
+                        className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg transition cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );

@@ -110,6 +110,13 @@ export interface AppUserSession {
   isLocalSession?: boolean;
 }
 
+export const ADMIN_EMAIL = 'chalermpat.korat1499@gmail.com';
+
+export const isSoleAdmin = (user: AppUserSession | null): boolean => {
+  if (!user || !user.email) return false;
+  return user.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+};
+
 // Local session storage helper
 const LOCAL_USER_KEY = 'cpt_stock_local_user';
 let activeLocalUser: AppUserSession | null = null;

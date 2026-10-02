@@ -71,10 +71,10 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base sm:text-lg">
-                พิมพ์รายงานข้อมูลรถและรอบเปลี่ยนถ่ายน้ำมันเครื่อง
+                พิมพ์รายงานประวัติถ่ายน้ำมันเครื่องและข้อมูลรถ
               </h3>
               <p className="text-xs text-indigo-200 mt-0.5">
-                พิมพ์รายงานแยกตามโรงงาน หรือพิมพ์ภาพรวมทุกโรงงาน (รองรับกระดาษ A4 แนวนอน / บันทึกเป็น PDF)
+                พิมพ์รายงานแยกตามโรงงาน หรือพิมพ์ภาพรวมทุกโรงงาน (รอบเปลี่ยนถ่าย 20,000 กม. • A4 แนวนอน / บันทึก PDF)
               </p>
             </div>
           </div>
@@ -163,7 +163,7 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                     บริษัท ซีพีที โคราช จำกัด (CPT KORAT CO., LTD.)
                   </h1>
                   <h2 className="text-sm sm:text-base font-bold text-indigo-900 mt-0.5">
-                    รายงานข้อมูลรถและกำหนดการรอบเปลี่ยนถ่ายน้ำมันเครื่อง (+20,000 กม.)
+                    รายงานประวัติถ่ายน้ำมันเครื่องและข้อมูลรถประจำโรงงาน (รอบเปลี่ยนถ่าย 20,000 กม.)
                   </h2>
                   <p className="text-xs font-semibold text-slate-700 mt-1">
                     สังกัด: <strong>{selectedFactory === 'all' ? 'ทุกโรงงานในระบบ' : selectedFactory}</strong>

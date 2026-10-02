@@ -8,7 +8,7 @@ import {
   CloudSyncStatus,
   AppUserSession
 } from './lib/firebase';
-import { OilItem, StockTransaction, Vehicle, FactoryItem, AdBlueRefillRecord } from './types';
+import { OilItem, StockTransaction, Vehicle, FactoryItem, AdBlueRefillRecord, isUserAdmin } from './types';
 import {
   subscribeOils,
   subscribeTransactions
@@ -213,6 +213,7 @@ export default function App() {
   };
 
   const currentUserName = user?.displayName || user?.email?.split('@')[0] || 'สมาชิกทีม';
+  const isAdmin = isUserAdmin(user);
 
   // Compute alert counts
   const alertOils = oils.filter((o) => o.currentStock <= o.minStockThreshold);
@@ -240,6 +241,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         user={user}
+        isAdmin={isAdmin}
         onLogout={logoutUser}
         oils={oils}
         vehicles={vehicles}
@@ -341,6 +343,7 @@ export default function App() {
               <StockListTab
                 oils={oils}
                 userName={currentUserName}
+                isAdmin={isAdmin}
                 onQuickDispense={handleQuickDispense}
                 onQuickReceive={handleQuickReceive}
               />
@@ -351,6 +354,7 @@ export default function App() {
                 oils={oils}
                 vehicles={vehicles}
                 userName={currentUserName}
+                isAdmin={isAdmin}
                 preselectedOilId={preselectedOilId}
                 prefilledVehiclePlate={prefilledVehiclePlate}
                 prefilledMileage={prefilledMileage}
@@ -363,6 +367,7 @@ export default function App() {
               <ReceiveTab
                 oils={oils}
                 userName={currentUserName}
+                isAdmin={isAdmin}
                 preselectedOilId={preselectedOilId}
                 onOpenAddNewOil={() => {
                   setPreselectedOilId(null);
@@ -377,7 +382,9 @@ export default function App() {
                 factories={factories}
                 adBlueRefills={adBlueRefills}
                 adBlueOils={adBlueOils}
+                oils={oils}
                 userName={currentUserName}
+                isAdmin={isAdmin}
                 onDispenseForVehicle={handleDispenseForVehicle}
               />
             )}
@@ -409,6 +416,7 @@ export default function App() {
                 transactions={transactions}
                 oils={oils}
                 userName={currentUserName}
+                isAdmin={isAdmin}
               />
             )}
           </>

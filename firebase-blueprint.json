@@ -266,6 +266,82 @@
         }
       },
       "required": ["uid", "email"]
+    },
+    "AdBlueRefillRecord": {
+      "title": "AdBlueRefillRecord",
+      "description": "Vehicle AdBlue DEF refilling event with before/after percentage and filled liters",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record ID"
+        },
+        "vehicleId": {
+          "type": "string",
+          "description": "Vehicle document ID"
+        },
+        "licensePlate": {
+          "type": "string",
+          "description": "Vehicle license plate number",
+          "maxLength": 50
+        },
+        "factory": {
+          "type": "string",
+          "description": "Factory name",
+          "maxLength": 50
+        },
+        "date": {
+          "type": "string",
+          "description": "Refilling timestamp"
+        },
+        "percentBefore": {
+          "type": "number",
+          "description": "AdBlue gauge percent level before refill"
+        },
+        "percentAfter": {
+          "type": "number",
+          "description": "AdBlue gauge percent level after refill"
+        },
+        "litersFilled": {
+          "type": "number",
+          "description": "Volume filled in liters"
+        },
+        "filledBy": {
+          "type": "string",
+          "description": "Name of technician or driver refilling",
+          "maxLength": 100
+        },
+        "currentMileage": {
+          "type": "number",
+          "description": "Odometer reading at refill time"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Remarks or dispenser container note",
+          "maxLength": 300
+        },
+        "deductedFromStock": {
+          "type": "boolean",
+          "description": "Whether stock was deducted"
+        },
+        "oilId": {
+          "type": "string",
+          "description": "Stock item ID of AdBlue"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "User who logged this record"
+        }
+      },
+      "required": ["licensePlate", "factory", "date", "percentBefore", "percentAfter", "litersFilled", "filledBy"]
     }
   },
   "firestore": {
@@ -288,6 +364,10 @@
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Registered team member profiles"
+    },
+    "/adblue_refills/{refillId}": {
+      "schema": "AdBlueRefillRecord",
+      "description": "Dedicated vehicle AdBlue refilling logs"
     }
   }
 }

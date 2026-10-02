@@ -8,7 +8,7 @@ import {
   CloudSyncStatus,
   AppUserSession
 } from './lib/firebase';
-import { OilItem, StockTransaction, Vehicle, FactoryItem } from './types';
+import { OilItem, StockTransaction, Vehicle, FactoryItem, AdBlueRefillRecord } from './types';
 import {
   subscribeOils,
   subscribeTransactions
@@ -18,6 +18,7 @@ import {
   calculateVehicleCycle,
   subscribeFactories
 } from './services/vehicleService';
+import { subscribeAdBlueRefills } from './services/adblueService';
 import { syncStockToGoogleSheets } from './services/googleSheetsService';
 
 import { Navbar, ActiveTab } from './components/Navbar';
@@ -26,6 +27,7 @@ import { DispenseTab } from './components/DispenseTab';
 import { ReceiveTab } from './components/ReceiveTab';
 import { VehiclesTab } from './components/VehiclesTab';
 import { ReportTab } from './components/ReportTab';
+import { MonthlySummaryTab } from './components/MonthlySummaryTab';
 import { HistoryTab } from './components/HistoryTab';
 import { AlertModal } from './components/AlertModal';
 import { AuthModal } from './components/AuthModal';
@@ -50,6 +52,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [factories, setFactories] = useState<FactoryItem[]>([]);
+  const [adBlueRefills, setAdBlueRefills] = useState<AdBlueRefillRecord[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   // Real-time Cloud Sync Status
@@ -138,11 +141,21 @@ export default function App() {
       }
     );
 
+    const unsubAdBlue = subscribeAdBlueRefills(
+      (data) => {
+        setAdBlueRefills(data);
+      },
+      (err) => {
+        console.warn('AdBlue subscription notice:', err);
+      }
+    );
+
     return () => {
       unsubOils();
       unsubTxs();
       unsubVehicles();
       unsubFactories();
+      unsubAdBlue();
     };
   }, [user]);
 
@@ -203,6 +216,13 @@ export default function App() {
 
   // Compute alert counts
   const alertOils = oils.filter((o) => o.currentStock <= o.minStockThreshold);
+  const adBlueOils = oils.filter(
+    (o) =>
+      o.name.toLowerCase().includes('adblue') ||
+      o.name.includes('แอดบลู') ||
+      o.viscosity.toLowerCase().includes('adblue') ||
+      o.brand.toLowerCase().includes('adblue')
+  );
   const overdueVehicles = vehicles.filter((v) => {
     const cycle = calculateVehicleCycle(v);
     return cycle.status === 'overdue';
@@ -355,6 +375,8 @@ export default function App() {
               <VehiclesTab
                 vehicles={vehicles}
                 factories={factories}
+                adBlueRefills={adBlueRefills}
+                adBlueOils={adBlueOils}
                 userName={currentUserName}
                 onDispenseForVehicle={handleDispenseForVehicle}
               />
@@ -368,6 +390,17 @@ export default function App() {
                 onSyncGoogleSheets={handleSyncGoogleSheets}
                 isSyncingSheets={isSyncingSheets}
                 sheetsUrl={sheetsUrl}
+              />
+            )}
+
+            {activeTab === 'monthly_summary' && (
+              <MonthlySummaryTab
+                oils={oils}
+                transactions={transactions}
+                adBlueRefills={adBlueRefills}
+                vehicles={vehicles}
+                factories={factories}
+                userName={currentUserName}
               />
             )}
 

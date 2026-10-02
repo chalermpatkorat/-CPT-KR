@@ -16,12 +16,13 @@ import {
   FileSpreadsheet,
   Truck,
   AlertTriangle,
-  Database
+  Database,
+  BarChart3
 } from 'lucide-react';
 import { OilItem, Vehicle, FactoryItem } from '../types';
 import { calculateVehicleCycle } from '../services/vehicleService';
 
-export type ActiveTab = 'stock' | 'dispense' | 'receive' | 'vehicles' | 'report' | 'history';
+export type ActiveTab = 'stock' | 'dispense' | 'receive' | 'vehicles' | 'report' | 'monthly_summary' | 'history';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -82,6 +83,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       badge: vehiclesDueCount > 0 ? vehiclesDueCount : undefined,
     },
     { id: 'report', label: 'รายงานคงเหลือ (สั่งพิมพ์)', icon: <FileText className="w-4 h-4" /> },
+    { id: 'monthly_summary', label: 'สรุปการใช้รายเดือน', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'history', label: 'ประวัติเบิกจ่ายและรับเข้า', icon: <History className="w-4 h-4" /> },
   ];
 

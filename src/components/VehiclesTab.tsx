@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Vehicle, FactoryItem } from '../types';
+import { Vehicle, FactoryItem, AdBlueRefillRecord, OilItem } from '../types';
 import {
   calculateVehicleCycle,
   addVehicle,
@@ -13,14 +13,18 @@ import {
   deleteFactory,
   DEFAULT_FACTORIES
 } from '../services/vehicleService';
+import {
+  deleteAdBlueRefill,
+  exportAdBlueRefillsToExcel
+} from '../services/adblueService';
 import * as XLSX from 'xlsx';
 import {
   Truck,
   Plus,
   Search,
-  AlertTriangle,
   CheckCircle2,
   AlertOctagon,
+  AlertTriangle,
   Clock,
   Calendar,
   Building2,
@@ -32,13 +36,20 @@ import {
   X,
   Check,
   Sparkles,
-  Printer
+  Printer,
+  Droplets,
+  Percent,
+  Layers
 } from 'lucide-react';
 import { VehiclePrintModal } from './VehiclePrintModal';
+import { AdBlueRefillModal } from './AdBlueRefillModal';
+import { AdBluePrintModal } from './AdBluePrintModal';
 
 interface VehiclesTabProps {
   vehicles: Vehicle[];
   factories?: FactoryItem[];
+  adBlueRefills?: AdBlueRefillRecord[];
+  adBlueOils?: OilItem[];
   userName: string;
   onDispenseForVehicle: (licensePlate: string, currentMileage: number, vehicleId: string) => void;
 }
@@ -46,18 +57,31 @@ interface VehiclesTabProps {
 export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   vehicles,
   factories = [],
+  adBlueRefills = [],
+  adBlueOils = [],
   userName,
   onDispenseForVehicle,
 }) => {
+  // Sub-view: 'vehicles' (ข้อมูลรถและรอบเปลี่ยนถ่าย) or 'adblue' (ประวัติเติม AdBlue แยกเฉพาะ)
+  const [subView, setSubView] = useState<'vehicles' | 'adblue'>('vehicles');
+
   const [selectedFactory, setSelectedFactory] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'due' | 'normal'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Print Modal State
+  // Print Modal State for Vehicles
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printModalFactory, setPrintModalFactory] = useState<string>('all');
 
-  // Add / Edit Modal State
+  // AdBlue Refill Modal State
+  const [isAdBlueModalOpen, setIsAdBlueModalOpen] = useState(false);
+  const [adBluePreselectedVehicle, setAdBluePreselectedVehicle] = useState<Vehicle | null>(null);
+  const [editingAdBlueRecord, setEditingAdBlueRecord] = useState<AdBlueRefillRecord | null>(null);
+
+  // AdBlue Print Modal State
+  const [isAdBluePrintOpen, setIsAdBluePrintOpen] = useState(false);
+
+  // Add / Edit Vehicle Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
 
@@ -65,7 +89,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const factoryList: string[] =
     factories.length > 0 ? factories.map((f) => f.name) : DEFAULT_FACTORIES;
 
-  // Form Fields
+  // Form Fields for Vehicle
   const [formPlate, setFormPlate] = useState('');
   const [formFactory, setFormFactory] = useState<string>(factoryList[0] || 'โรงงาน 1');
   const [formRoute, setFormRoute] = useState('');
@@ -90,8 +114,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
   // Delete State
   const [vehicleToDelete, setVehicleToDelete] = useState<Vehicle | null>(null);
+  const [adBlueToDelete, setAdBlueToDelete] = useState<AdBlueRefillRecord | null>(null);
 
-  // Factory Management Modal State (เพิ่ม & แก้ไขชื่อโรงงาน)
+  // Factory Management Modal State
   const [isFactoryModalOpen, setIsFactoryModalOpen] = useState(false);
   const [newFactoryInput, setNewFactoryInput] = useState('');
   const [editingFactoryId, setEditingFactoryId] = useState<string | null>(null);
@@ -174,7 +199,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     }
   };
 
-  // Metrics Calculation
+  // Metrics Calculation for Vehicles
   const vehicleStats = vehicles.map((v) => ({
     vehicle: v,
     cycle: calculateVehicleCycle(v),
@@ -184,7 +209,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const dueSoonCount = vehicleStats.filter((s) => s.cycle.status === 'due_soon').length;
   const normalCount = vehicleStats.filter((s) => s.cycle.status === 'normal').length;
 
-  // Filtered List
+  // Filtered Vehicles
   const filteredVehicles = vehicleStats.filter(({ vehicle, cycle }) => {
     const matchesFactory = selectedFactory === 'all' || vehicle.factory === selectedFactory;
     const matchesSearch =
@@ -201,6 +226,18 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
     return matchesFactory && matchesSearch && matchesStatus;
   });
+
+  // Filtered AdBlue Refill Records
+  const filteredAdBlueRecords = adBlueRefills.filter((r) => {
+    const matchesFactory = selectedFactory === 'all' || r.factory === selectedFactory;
+    const matchesSearch =
+      r.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.filledBy.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.notes && r.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+    return matchesFactory && matchesSearch;
+  });
+
+  const totalAdBlueLiters = filteredAdBlueRecords.reduce((sum, r) => sum + (r.litersFilled || 0), 0);
 
   const openAddModal = () => {
     setEditingVehicle(null);
@@ -233,6 +270,36 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const handleOpenPrint = (factoryTarget: string = 'all') => {
     setPrintModalFactory(factoryTarget);
     setIsPrintModalOpen(true);
+  };
+
+  const handleOpenAdBlueRefillForVehicle = (v: Vehicle) => {
+    setEditingAdBlueRecord(null);
+    setAdBluePreselectedVehicle(v);
+    setIsAdBlueModalOpen(true);
+  };
+
+  const handleOpenNewAdBlueRefill = () => {
+    setEditingAdBlueRecord(null);
+    setAdBluePreselectedVehicle(null);
+    setIsAdBlueModalOpen(true);
+  };
+
+  const handleEditAdBlueRefill = (r: AdBlueRefillRecord) => {
+    setEditingAdBlueRecord(r);
+    setAdBluePreselectedVehicle(null);
+    setIsAdBlueModalOpen(true);
+  };
+
+  const handleDeleteAdBlueConfirm = async () => {
+    if (!adBlueToDelete) return;
+    try {
+      await deleteAdBlueRefill(adBlueToDelete.id);
+      setSuccessToast(`ลบประวัติการเติม AdBlue เรียบร้อยแล้ว`);
+      setAdBlueToDelete(null);
+      setTimeout(() => setSuccessToast(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'ลบไม่สำเร็จ');
+    }
   };
 
   const handleSaveVehicle = async (e: React.FormEvent) => {
@@ -400,33 +467,107 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         </div>
       )}
 
-      {/* Top Banner with Print Button */}
+      {/* Top Banner with Sub-View Switcher & Actions */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div>
           <div className="flex items-center gap-2 text-indigo-300 text-xs font-bold uppercase tracking-wider">
             <Truck className="w-4 h-4 text-amber-400" />
-            <span>ข้อมูลรถประจำโรงงาน • กำหนดรอบเปลี่ยนถ่าย = เลขไมล์ปัจจุบัน + 20,000 กม.</span>
+            <span>ข้อมูลรถประจำโรงงาน ({factoryList.length} โรงงาน) & ประวัติเติมน้ำยา AdBlue</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight mt-1">
-            ระบบติดตามข้อมูลรถ & รอบเปลี่ยนถ่ายน้ำมันเครื่อง
+            {subView === 'vehicles'
+              ? 'ระบบติดตามข้อมูลรถ & รอบเปลี่ยนถ่ายน้ำมันเครื่อง'
+              : 'ประวัติรายงานการเติมน้ำยาบำบัดไอเสีย AdBlue (แยกเฉพาะ)'}
           </h2>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
-            คำนวณรอบเปลี่ยนถ่ายถัดไปโดยบวกเพิ่ม 20,000 กม. จากเลขไมล์ของรถแต่ละคัน พร้อมแจ้งเตือนล่วงหน้า 1 เดือน ({factoryList.length} โรงงาน)
+            {subView === 'vehicles'
+              ? 'คำนวณรอบเปลี่ยนถ่ายถัดไปโดยบวกเพิ่ม 20,000 กม. จากไมล์ปัจจุบัน พร้อมแจ้งเตือนล่วงหน้า 1 เดือน'
+              : 'บันทึกและตรวจสอบประวัติการเติมน้ำยา AdBlue (%ก่อนเติม, %หลังเติม, จำนวนลิตร, ผู้เติม) รายคัน'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Print Report Button (Key User Requirement) */}
-          <button
-            type="button"
-            onClick={() => handleOpenPrint(selectedFactory)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
-          >
-            <Printer className="w-4 h-4 text-slate-950" />
-            <span>สั่งพิมพ์รายงาน (Print / PDF)</span>
-          </button>
+          {/* Sub-View Switcher Toggle */}
+          <div className="bg-white/10 p-1 rounded-xl flex items-center gap-1 border border-white/20">
+            <button
+              type="button"
+              onClick={() => setSubView('vehicles')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                subView === 'vehicles'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'text-white hover:bg-white/10'
+              }`}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              <span>ข้อมูลรถ ({vehicles.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubView('adblue')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                subView === 'adblue'
+                  ? 'bg-teal-500 text-white shadow-xs'
+                  : 'text-white hover:bg-white/10'
+              }`}
+            >
+              <Droplets className="w-3.5 h-3.5" />
+              <span>ประวัติเติม AdBlue ({adBlueRefills.length})</span>
+            </button>
+          </div>
 
-          {/* Button to open Factory Management */}
+          {subView === 'vehicles' ? (
+            <>
+              {/* Print Vehicles Report Button */}
+              <button
+                type="button"
+                onClick={() => handleOpenPrint(selectedFactory)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-slate-950" />
+                <span>สั่งพิมพ์รายงานรถ</span>
+              </button>
+
+              <button
+                onClick={openAddModal}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ เพิ่มข้อมูลรถ</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {/* AdBlue Sub-view Actions */}
+              <button
+                type="button"
+                onClick={handleOpenNewAdBlueRefill}
+                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ บันทึกเติม AdBlue</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAdBluePrintOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+              >
+                <Printer className="w-4 h-4" />
+                <span>พิมพ์รายงาน AdBlue</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => exportAdBlueRefillsToExcel(adBlueRefills)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+              >
+                <Download className="w-4 h-4" />
+                <span>Excel (.xlsx)</span>
+              </button>
+            </>
+          )}
+
+          {/* Manage Factories Button */}
           <button
             type="button"
             onClick={() => {
@@ -434,464 +575,705 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
               setFactoryActionError(null);
               setFactoryActionSuccess(null);
             }}
-            className="flex items-center gap-2 px-3.5 py-2.5 bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer border border-indigo-400/30"
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md transition cursor-pointer border border-indigo-400/30"
           >
-            <Building2 className="w-4 h-4 text-amber-300" />
+            <Building2 className="w-3.5 h-3.5 text-amber-300" />
             <span>จัดการโรงงาน ({factoryList.length})</span>
           </button>
-
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ เพิ่มข้อมูลรถ</span>
-          </button>
-
-          <button
-            onClick={handleExportVehiclesExcel}
-            className="flex items-center gap-2 px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/10"
-          >
-            <Download className="w-4 h-4" />
-            <span>Excel (.xlsx)</span>
-          </button>
         </div>
       </div>
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 no-print">
-        {/* Metric 1: Total Vehicles */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              จำนวนรถทั้งหมด
-            </p>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-                {vehicles.length}
-              </span>
-              <span className="text-sm font-semibold text-slate-600">คัน</span>
+      {/* Sub-view Content: 1. Main Vehicles Tab */}
+      {subView === 'vehicles' && (
+        <>
+          {/* Overview Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 no-print">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  จำนวนรถทั้งหมด
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+                    {vehicles.length}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">คัน</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">ครอบคลุมทั้ง {factoryList.length} โรงงาน</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                <Truck className="w-6 h-6" />
+              </div>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">ครอบคลุมทั้ง {factoryList.length} โรงงาน</p>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
-            <Truck className="w-6 h-6" />
-          </div>
-        </div>
 
-        {/* Metric 2: Overdue */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              เกินรอบเปลี่ยนถ่าย (ด่วน)
-            </p>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span
-                className={`text-2xl sm:text-3xl font-extrabold ${
-                  overdueCount > 0 ? 'text-red-600' : 'text-slate-800'
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  เกินรอบเปลี่ยนถ่าย (ด่วน)
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span
+                    className={`text-2xl sm:text-3xl font-extrabold ${
+                      overdueCount > 0 ? 'text-red-600' : 'text-slate-800'
+                    }`}
+                  >
+                    {overdueCount}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">คัน</span>
+                </div>
+                <p className="text-[11px] text-red-500 font-medium mt-1">
+                  {overdueCount > 0 ? 'วิ่งเลยเป้าหมาย (+20,000 กม.) แล้ว!' : 'ไม่มีรถเกินรอบ'}
+                </p>
+              </div>
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  overdueCount > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'
                 }`}
               >
-                {overdueCount}
-              </span>
-              <span className="text-sm font-semibold text-slate-600">คัน</span>
+                <AlertOctagon className="w-6 h-6" />
+              </div>
             </div>
-            <p className="text-[11px] text-red-500 font-medium mt-1">
-              {overdueCount > 0 ? 'วิ่งเลยเป้าหมาย (+20,000 กม.) แล้ว!' : 'ไม่มีรถเกินรอบ'}
-            </p>
-          </div>
-          <div
-            className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-              overdueCount > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'
-            }`}
-          >
-            <AlertOctagon className="w-6 h-6" />
-          </div>
-        </div>
 
-        {/* Metric 3: Due soon */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              เตือนล่วงหน้า 1 เดือน
-            </p>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span
-                className={`text-2xl sm:text-3xl font-extrabold ${
-                  dueSoonCount > 0 ? 'text-amber-600' : 'text-slate-800'
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  เตือนล่วงหน้า 1 เดือน
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span
+                    className={`text-2xl sm:text-3xl font-extrabold ${
+                      dueSoonCount > 0 ? 'text-amber-600' : 'text-slate-800'
+                    }`}
+                  >
+                    {dueSoonCount}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">คัน</span>
+                </div>
+                <p className="text-[11px] text-amber-700 font-medium mt-1">
+                  {dueSoonCount > 0 ? 'เตรียมสั่งซื้อน้ำมันเครื่อง' : 'ยังไม่ถึงรอบเตือน'}
+                </p>
+              </div>
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  dueSoonCount > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'
                 }`}
               >
-                {dueSoonCount}
-              </span>
-              <span className="text-sm font-semibold text-slate-600">คัน</span>
+                <Clock className="w-6 h-6" />
+              </div>
             </div>
-            <p className="text-[11px] text-amber-700 font-medium mt-1">
-              {dueSoonCount > 0 ? 'เตรียมสั่งซื้อน้ำมันเครื่อง' : 'ยังไม่ถึงรอบเตือน'}
-            </p>
-          </div>
-          <div
-            className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-              dueSoonCount > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'
-            }`}
-          >
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-        </div>
 
-        {/* Metric 4: Normal */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              สถานะปกติ
-            </p>
-            <div className="flex items-baseline gap-1.5 mt-1.5">
-              <span className="text-2xl sm:text-3xl font-extrabold text-emerald-600">
-                {normalCount}
-              </span>
-              <span className="text-sm font-semibold text-slate-600">คัน</span>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  ประวัติเติม AdBlue รวม
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-2xl sm:text-3xl font-extrabold text-teal-600">
+                    {totalAdBlueLiters.toLocaleString('th-TH')}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">ลิตร</span>
+                </div>
+                <p className="text-[11px] text-teal-600 font-medium mt-1">
+                  {adBlueRefills.length} บันทึกการเติม
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                <Droplets className="w-6 h-6" />
+              </div>
             </div>
-            <p className="text-[11px] text-emerald-600 font-medium mt-1">
-              ระยะทางยังอยู่ในเกณฑ์ปกติ
-            </p>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-        </div>
-      </div>
 
-      {/* Factory Tabs and Filters */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3 no-print">
-        {/* Factory Switcher Pills with Direct Print Action */}
-        <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            <button
-              onClick={() => setSelectedFactory('all')}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer ${
-                selectedFactory === 'all'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              ทุกโรงงาน ({vehicles.length})
-            </button>
-            {factoryList.map((fac) => {
-              const count = vehicles.filter((v) => v.factory === fac).length;
-              const isSelected = selectedFactory === fac;
-              return (
+          {/* Factory Tabs and Filters */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3 no-print">
+            <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
-                  key={fac}
-                  onClick={() => setSelectedFactory(fac)}
-                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white shadow-xs'
+                  onClick={() => setSelectedFactory('all')}
+                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer ${
+                    selectedFactory === 'all'
+                      ? 'bg-slate-900 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>{fac}</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {count}
-                  </span>
+                  ทุกโรงงาน ({vehicles.length})
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Quick Print for currently selected factory */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => handleOpenPrint(selectedFactory)}
-              className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
-            >
-              <Printer className="w-3.5 h-3.5 text-indigo-600" />
-              <span>
-                พิมพ์รายงาน ({selectedFactory === 'all' ? 'ทุกโรงงาน' : selectedFactory})
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Filter & Search Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ค้นหาทะเบียนรถ, สายรถ, หรือหมายเหตุ..."
-              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-700 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-            >
-              <option value="all">ทุกสถานะรอบถ่าย</option>
-              <option value="due">เฉพาะใกล้ถึงรอบ & เกินรอบ</option>
-              <option value="normal">เฉพาะสถานะปกติ</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Vehicles Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden no-print">
-        {filteredVehicles.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            <Truck className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-            <h4 className="text-base font-bold text-slate-700">ไม่พบข้อมูลรถ</h4>
-            <p className="text-xs text-slate-400 mt-1">
-              ลองเปลี่ยนคำค้นหา หรือกดปุ่ม "+ เพิ่มข้อมูลรถ" เพื่อลงทะเบียนรถใหม่
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                  <th className="py-3.5 px-4">ทะเบียนรถ</th>
-                  <th className="py-3.5 px-3">โรงงาน</th>
-                  <th className="py-3.5 px-3">สายรถ</th>
-                  <th className="py-3.5 px-3 text-right">ระยะทาง/เที่ยว</th>
-                  <th className="py-3.5 px-3 text-center">เที่ยว/ด.</th>
-                  <th className="py-3.5 px-3 text-right">เลขไมล์ปัจจุบัน</th>
-                  <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.)</th>
-                  <th className="py-3.5 px-3 text-center">วันที่ต้องเรียกรถเข้าถ่าย</th>
-                  <th className="py-3.5 px-3 text-center">สถานะรอบเปลี่ยนถ่าย</th>
-                  <th className="py-3.5 px-4 text-center">การจัดการ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredVehicles.map(({ vehicle, cycle }) => {
-                  const isOverdue = cycle.status === 'overdue';
-                  const isDueSoon = cycle.status === 'due_soon';
-
-                  const percentUsed = Math.min(
-                    100,
-                    Math.round((cycle.kmSinceLastChange / (vehicle.oilChangeIntervalKm || 20000)) * 100)
-                  );
-
+                {factoryList.map((fac) => {
+                  const count = vehicles.filter((v) => v.factory === fac).length;
+                  const isSelected = selectedFactory === fac;
                   return (
-                    <tr
-                      key={vehicle.id}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        isOverdue ? 'bg-red-50/40' : isDueSoon ? 'bg-amber-50/30' : ''
+                    <button
+                      key={fac}
+                      onClick={() => setSelectedFactory(fac)}
+                      className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-900 text-sm">
-                            {vehicle.licensePlate}
-                          </span>
-                        </div>
-                        {vehicle.notes && (
-                          <span className="text-[11px] text-slate-400 block line-clamp-1">
-                            {vehicle.notes}
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">
-                          {vehicle.factory}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-3 font-medium text-slate-700 max-w-xs truncate">
-                        {vehicle.route || '-'}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-right font-semibold text-slate-800 whitespace-nowrap">
-                        {vehicle.distancePerTrip.toLocaleString('th-TH')} กม.
-                      </td>
-
-                      <td className="py-3.5 px-3 text-center text-slate-600 font-medium">
-                        {vehicle.tripsPerMonth}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-right font-black text-slate-900 whitespace-nowrap">
-                        {vehicle.currentMileage.toLocaleString('th-TH')} กม.
-                      </td>
-
-                      {/* Next Oil Change Target Mileage = Current/Base + 20,000 km */}
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                        <div className="text-right">
-                          <span className="font-extrabold text-slate-900 text-sm">
-                            {cycle.nextTargetMileage.toLocaleString('th-TH')} กม.
-                          </span>
-                          <span className={`block text-[11px] font-semibold ${
-                            isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-emerald-600'
-                          }`}>
-                            {isOverdue
-                              ? `เกินรอบ ${Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.`
-                              : `เหลืออีก ${cycle.kmRemaining.toLocaleString('th-TH')} กม.`}
-                          </span>
-                          <span className="block text-[10px] text-slate-400">
-                            วิ่งแล้ว {cycle.kmSinceLastChange.toLocaleString('th-TH')} กม. ({percentUsed}%)
-                          </span>
-                          <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 ml-auto overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                isOverdue ? 'bg-red-500' : isDueSoon ? 'bg-amber-500' : 'bg-emerald-500'
-                              }`}
-                              style={{ width: `${percentUsed}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Scheduled Call-in Due Date */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSchedulingVehicle(vehicle);
-                            setScheduleInputDate(
-                              vehicle.nextOilChangeDueDate ||
-                              (cycle.estimatedDueDate ? cycle.estimatedDueDate.toISOString().slice(0, 10) : '')
-                            );
-                          }}
-                          title="คลิกเพื่อกำหนดหรือเปลี่ยนวันนัดหมายเรียกรถเข้า"
-                          className="group inline-flex flex-col items-center p-1.5 rounded-xl hover:bg-indigo-50 border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer text-left"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
-                            <span className="font-extrabold text-slate-900 text-xs sm:text-sm group-hover:text-indigo-700">
-                              {cycle.formattedDueDate}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold ${
-                              cycle.isManualDueDate
-                                ? 'bg-indigo-100 text-indigo-700'
-                                : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {cycle.isManualDueDate ? '📌 นัดหมายเอง' : '⚡ คำนวณอัตโนมัติ'}
-                            </span>
-                            <span className={`text-[10px] font-bold ${
-                              isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-700' : 'text-slate-500'
-                            }`}>
-                              {isOverdue
-                                ? '• เลยกำหนด'
-                                : cycle.estimatedDaysRemaining === 0
-                                ? '• วันนี้!'
-                                : `• อีก ${cycle.estimatedDaysRemaining} วัน`}
-                            </span>
-                          </div>
-                        </button>
-                      </td>
-
-                      {/* Status & Estimated Due Date */}
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        {isOverdue ? (
-                          <div className="inline-flex flex-col items-center">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1">
-                              <AlertOctagon className="w-3.5 h-3.5" />
-                              เกิน {Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.
-                            </span>
-                            <span className="text-[10px] text-red-600 font-bold mt-0.5">
-                              ต้องเปลี่ยนทันที!
-                            </span>
-                          </div>
-                        ) : isDueSoon ? (
-                          <div className="inline-flex flex-col items-center">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              อีก {cycle.kmRemaining.toLocaleString('th-TH')} กม.
-                            </span>
-                            <span className="text-[10px] text-amber-700 font-semibold mt-0.5">
-                              ประมาณ {cycle.estimatedDaysRemaining} วัน (ล่วงหน้า 1 เดือน)
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex flex-col items-center">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              เหลือ {cycle.kmRemaining.toLocaleString('th-TH')} กม.
-                            </span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              ~{cycle.estimatedDaysRemaining} วัน
-                            </span>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Action Buttons */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Quick Dispense for this vehicle */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onDispenseForVehicle(vehicle.licensePlate, vehicle.currentMileage, vehicle.id)
-                            }
-                            title="เบิกน้ำมันเครื่อง/AdBlue ให้รถคันนี้ทันที"
-                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
-                          >
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                            <span>เบิก</span>
-                          </button>
-
-                          {/* Record Oil Change Service */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setServiceVehicle(vehicle);
-                              setServiceMileage(vehicle.currentMileage.toString());
-                              setServiceDate(new Date().toISOString().slice(0, 10));
-                            }}
-                            title="บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่"
-                            className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Wrench className="w-4 h-4" />
-                          </button>
-
-                          {/* Edit Vehicle */}
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(vehicle)}
-                            title="แก้ไขข้อมูลรถ"
-                            className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete Vehicle */}
-                          <button
-                            type="button"
-                            onClick={() => setVehicleToDelete(vehicle)}
-                            title="ลบข้อมูลรถ"
-                            className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>{fac}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Quick Print for currently selected factory */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleOpenPrint(selectedFactory)}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                >
+                  <Printer className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>
+                    พิมพ์รายงาน ({selectedFactory === 'all' ? 'ทุกโรงงาน' : selectedFactory})
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="ค้นหาทะเบียนรถ, สายรถ, หรือหมายเหตุ..."
+                  className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-700 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                >
+                  <option value="all">ทุกสถานะรอบถ่าย</option>
+                  <option value="due">เฉพาะใกล้ถึงรอบ & เกินรอบ</option>
+                  <option value="normal">เฉพาะสถานะปกติ</option>
+                </select>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Vehicles Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden no-print">
+            {filteredVehicles.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <Truck className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-base font-bold text-slate-700">ไม่พบข้อมูลรถ</h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  ลองเปลี่ยนคำค้นหา หรือกดปุ่ม "+ เพิ่มข้อมูลรถ" เพื่อลงทะเบียนรถใหม่
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
+                      <th className="py-3.5 px-4">ทะเบียนรถ</th>
+                      <th className="py-3.5 px-3">โรงงาน</th>
+                      <th className="py-3.5 px-3">สายรถ</th>
+                      <th className="py-3.5 px-3 text-right">ระยะทาง/เที่ยว</th>
+                      <th className="py-3.5 px-3 text-center">เที่ยว/ด.</th>
+                      <th className="py-3.5 px-3 text-right">เลขไมล์ปัจจุบัน</th>
+                      <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.)</th>
+                      <th className="py-3.5 px-3 text-center">วันที่ต้องเรียกรถเข้าถ่าย</th>
+                      <th className="py-3.5 px-3 text-center">สถานะรอบเปลี่ยนถ่าย</th>
+                      <th className="py-3.5 px-4 text-center">การจัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredVehicles.map(({ vehicle, cycle }) => {
+                      const isOverdue = cycle.status === 'overdue';
+                      const isDueSoon = cycle.status === 'due_soon';
+
+                      const percentUsed = Math.min(
+                        100,
+                        Math.round((cycle.kmSinceLastChange / (vehicle.oilChangeIntervalKm || 20000)) * 100)
+                      );
+
+                      // Calculate vehicle's total AdBlue filled
+                      const vehicleAdBlueLiters = adBlueRefills
+                        .filter((r) => r.licensePlate === vehicle.licensePlate)
+                        .reduce((sum, r) => sum + (r.litersFilled || 0), 0);
+
+                      return (
+                        <tr
+                          key={vehicle.id}
+                          className={`hover:bg-slate-50/80 transition-colors ${
+                            isOverdue ? 'bg-red-50/40' : isDueSoon ? 'bg-amber-50/30' : ''
+                          }`}
+                        >
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-slate-900 text-sm">
+                                {vehicle.licensePlate}
+                              </span>
+                            </div>
+                            {vehicleAdBlueLiters > 0 && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-bold mt-0.5">
+                                <Droplets className="w-2.5 h-2.5" />
+                                <span>AdBlue: {vehicleAdBlueLiters} ลิตร</span>
+                              </span>
+                            )}
+                            {vehicle.notes && (
+                              <span className="text-[11px] text-slate-400 block line-clamp-1">
+                                {vehicle.notes}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">
+                              {vehicle.factory}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-3 font-medium text-slate-700 max-w-xs truncate">
+                            {vehicle.route || '-'}
+                          </td>
+
+                          <td className="py-3.5 px-3 text-right font-semibold text-slate-800 whitespace-nowrap">
+                            {vehicle.distancePerTrip.toLocaleString('th-TH')} กม.
+                          </td>
+
+                          <td className="py-3.5 px-3 text-center text-slate-600 font-medium">
+                            {vehicle.tripsPerMonth}
+                          </td>
+
+                          <td className="py-3.5 px-3 text-right font-black text-slate-900 whitespace-nowrap">
+                            {vehicle.currentMileage.toLocaleString('th-TH')} กม.
+                          </td>
+
+                          {/* Next Oil Change Target Mileage */}
+                          <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                            <div className="text-right">
+                              <span className="font-extrabold text-slate-900 text-sm">
+                                {cycle.nextTargetMileage.toLocaleString('th-TH')} กม.
+                              </span>
+                              <span className={`block text-[11px] font-semibold ${
+                                isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-emerald-600'
+                              }`}>
+                                {isOverdue
+                                  ? `เกินรอบ ${Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.`
+                                  : `เหลืออีก ${cycle.kmRemaining.toLocaleString('th-TH')} กม.`}
+                              </span>
+                              <span className="block text-[10px] text-slate-400">
+                                วิ่งแล้ว {cycle.kmSinceLastChange.toLocaleString('th-TH')} กม. ({percentUsed}%)
+                              </span>
+                              <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 ml-auto overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    isOverdue ? 'bg-red-500' : isDueSoon ? 'bg-amber-500' : 'bg-emerald-500'
+                                  }`}
+                                  style={{ width: `${percentUsed}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Scheduled Call-in Due Date */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSchedulingVehicle(vehicle);
+                                setScheduleInputDate(
+                                  vehicle.nextOilChangeDueDate ||
+                                  (cycle.estimatedDueDate ? cycle.estimatedDueDate.toISOString().slice(0, 10) : '')
+                                );
+                              }}
+                              title="คลิกเพื่อกำหนดหรือเปลี่ยนวันนัดหมายเรียกรถเข้า"
+                              className="group inline-flex flex-col items-center p-1.5 rounded-xl hover:bg-indigo-50 border border-slate-200/80 hover:border-indigo-300 transition cursor-pointer text-left"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                                <span className="font-extrabold text-slate-900 text-xs sm:text-sm group-hover:text-indigo-700">
+                                  {cycle.formattedDueDate}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold ${
+                                  cycle.isManualDueDate
+                                    ? 'bg-indigo-100 text-indigo-700'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {cycle.isManualDueDate ? '📌 นัดหมายเอง' : '⚡ คำนวณอัตโนมัติ'}
+                                </span>
+                                <span className={`text-[10px] font-bold ${
+                                  isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-700' : 'text-slate-500'
+                                }`}>
+                                  {isOverdue
+                                    ? '• เลยกำหนด'
+                                    : cycle.estimatedDaysRemaining === 0
+                                    ? '• วันนี้!'
+                                    : `• อีก ${cycle.estimatedDaysRemaining} วัน`}
+                                </span>
+                              </div>
+                            </button>
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                            {isOverdue ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1">
+                                  <AlertOctagon className="w-3.5 h-3.5" />
+                                  เกิน {Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.
+                                </span>
+                                <span className="text-[10px] text-red-600 font-bold mt-0.5">
+                                  ต้องเปลี่ยนทันที!
+                                </span>
+                              </div>
+                            ) : isDueSoon ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" />
+                                  อีก {cycle.kmRemaining.toLocaleString('th-TH')} กม.
+                                </span>
+                                <span className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                                  ประมาณ {cycle.estimatedDaysRemaining} วัน (ล่วงหน้า 1 เดือน)
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="inline-flex flex-col items-center">
+                                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  เหลือ {cycle.kmRemaining.toLocaleString('th-TH')} กม.
+                                </span>
+                                <span className="text-[10px] text-slate-400 mt-0.5">
+                                  ~{cycle.estimatedDaysRemaining} วัน
+                                </span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Quick Dispense Oil */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onDispenseForVehicle(vehicle.licensePlate, vehicle.currentMileage, vehicle.id)
+                                }
+                                title="เบิกน้ำมันเครื่องให้รถคันนี้ทันที"
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <ArrowUpRight className="w-3.5 h-3.5" />
+                                <span>เบิกน้ำมัน</span>
+                              </button>
+
+                              {/* Quick Refill AdBlue */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAdBlueRefillForVehicle(vehicle)}
+                                title="บันทึกการเติมน้ำยาบำบัดไอเสีย AdBlue ให้รถคันนี้"
+                                className="px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <Droplets className="w-3.5 h-3.5" />
+                                <span>+ AdBlue</span>
+                              </button>
+
+                              {/* Record Oil Change Service */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setServiceVehicle(vehicle);
+                                  setServiceMileage(vehicle.currentMileage.toString());
+                                  setServiceDate(new Date().toISOString().slice(0, 10));
+                                }}
+                                title="บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่"
+                                className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Wrench className="w-4 h-4" />
+                              </button>
+
+                              {/* Edit Vehicle */}
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(vehicle)}
+                                title="แก้ไขข้อมูลรถ"
+                                className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+
+                              {/* Delete Vehicle */}
+                              <button
+                                type="button"
+                                onClick={() => setVehicleToDelete(vehicle)}
+                                title="ลบข้อมูลรถ"
+                                className="p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Sub-view Content: 2. Dedicated AdBlue Refills Section */}
+      {subView === 'adblue' && (
+        <div className="space-y-4 no-print">
+          {/* AdBlue Summary Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  จำนวนครั้งที่เติม AdBlue
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-2xl sm:text-3xl font-black text-teal-700">
+                    {filteredAdBlueRecords.length}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">ครั้ง</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  โรงงาน: {selectedFactory === 'all' ? 'ทุกโรงงาน' : selectedFactory}
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                <Droplets className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  ปริมาณ AdBlue ที่เติมรวม
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-2xl sm:text-3xl font-black text-emerald-600">
+                    {totalAdBlueLiters.toLocaleString('th-TH')}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">ลิตร</span>
+                </div>
+                <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                  เฉลี่ย ~{filteredAdBlueRecords.length > 0 ? Math.round(totalAdBlueLiters / filteredAdBlueRecords.length) : 0} ลิตร/ครั้ง
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Percent className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  คงเหลือในสต๊อก (น้ำยา AdBlue)
+                </p>
+                <div className="flex items-baseline gap-1.5 mt-1.5">
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">
+                    {adBlueOils.reduce((sum, o) => sum + (o.currentStock || 0), 0).toLocaleString('th-TH')}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-600">ลิตร</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  จาก {adBlueOils.length} รายการสต๊อก AdBlue
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Layers className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          {/* AdBlue Filter & Actions Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="ค้นหาทะเบียนรถ, ผู้เติม, หรือหมายเหตุ..."
+                  className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
+                />
+              </div>
+
+              <select
+                value={selectedFactory}
+                onChange={(e) => setSelectedFactory(e.target.value)}
+                className="px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-700 outline-none font-bold"
+              >
+                <option value="all">ทุกโรงงาน</option>
+                {factoryList.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenNewAdBlueRefill}
+                className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-sm transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ บันทึกการเติม AdBlue</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAdBluePrintOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-sm transition cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-teal-300" />
+                <span>พิมพ์รายงาน AdBlue</span>
+              </button>
+            </div>
+          </div>
+
+          {/* AdBlue Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            {filteredAdBlueRecords.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <Droplets className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-base font-bold text-slate-700">ไม่พบประวัติการเติม AdBlue</h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  กดปุ่ม "+ บันทึกการเติม AdBlue" เพื่อบันทึกรายการแรก
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
+                      <th className="py-3.5 px-4">วัน/เดือน/ปี ที่เติม</th>
+                      <th className="py-3.5 px-3">ทะเบียนรถ</th>
+                      <th className="py-3.5 px-3">โรงงาน</th>
+                      <th className="py-3.5 px-3 text-center bg-amber-50/50">% ก่อนเติม</th>
+                      <th className="py-3.5 px-3 text-center bg-teal-50/50">% หลังเติม</th>
+                      <th className="py-3.5 px-3 text-right">จำนวนลิตรที่เติม</th>
+                      <th className="py-3.5 px-3">ผู้เติม</th>
+                      <th className="py-3.5 px-3 text-right">เลขไมล์ (กม.)</th>
+                      <th className="py-3.5 px-3">หมายเหตุ</th>
+                      <th className="py-3.5 px-4 text-center">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredAdBlueRecords.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4 whitespace-nowrap font-medium text-slate-700">
+                          {new Date(r.date).toLocaleString('th-TH', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+
+                        <td className="py-3.5 px-3 whitespace-nowrap font-extrabold text-slate-900">
+                          {r.licensePlate}
+                        </td>
+
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">
+                            {r.factory}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-3 text-center font-bold text-amber-700 bg-amber-50/20">
+                          {r.percentBefore}%
+                        </td>
+
+                        <td className="py-3.5 px-3 text-center font-bold text-teal-700 bg-teal-50/20">
+                          {r.percentAfter}%
+                        </td>
+
+                        <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                          <span className="font-black text-teal-700 text-sm">
+                            {r.litersFilled.toLocaleString('th-TH')}
+                          </span>
+                          <span className="text-[11px] text-slate-500 ml-1">ลิตร</span>
+                        </td>
+
+                        <td className="py-3.5 px-3 whitespace-nowrap font-medium text-slate-800">
+                          {r.filledBy}
+                        </td>
+
+                        <td className="py-3.5 px-3 text-right text-slate-600 whitespace-nowrap">
+                          {r.currentMileage ? `${r.currentMileage.toLocaleString('th-TH')} กม.` : '-'}
+                        </td>
+
+                        <td className="py-3.5 px-3 text-xs text-slate-500 max-w-xs truncate">
+                          {r.notes || '-'}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleEditAdBlueRefill(r)}
+                              title="แก้ไขบันทึก"
+                              className="p-1.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAdBlueToDelete(r)}
+                              title="ลบบันทึก"
+                              className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
+                      <td colSpan={5} className="py-3.5 px-4 text-right">
+                        รวมปริมาณน้ำยา AdBlue ที่เติมทั้งหมด:
+                      </td>
+                      <td className="py-3.5 px-3 text-right text-teal-800 font-black">
+                        {totalAdBlueLiters.toLocaleString('th-TH')} ลิตร
+                      </td>
+                      <td colSpan={4} className="py-3.5 px-3 text-xs text-slate-500">
+                        ({filteredAdBlueRecords.length} ครั้ง)
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Add / Edit Vehicle Modal */}
       {isModalOpen && (
@@ -1055,7 +1437,6 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   )}
                 </div>
 
-                {/* Real-time Calculation Preview */}
                 {(() => {
                   const dist = parseFloat(formDistancePerTrip) || 0;
                   const trips = parseFloat(formTripsPerMonth) || 0;
@@ -1339,7 +1720,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Vehicle Confirmation Modal */}
       {vehicleToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
@@ -1374,6 +1755,41 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         </div>
       )}
 
+      {/* Delete AdBlue Confirmation Modal */}
+      {adBlueToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center">
+              <h4 className="text-base font-bold text-slate-900">ยืนยันการลบประวัติเติม AdBlue?</h4>
+              <p className="text-xs text-slate-500 mt-1">
+                คุณกำลังจะลบรายการเติม AdBlue ของรถ <strong>{adBlueToDelete.licensePlate}</strong> จำนวน <strong>{adBlueToDelete.litersFilled} ลิตร</strong>
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setAdBlueToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAdBlueConfirm}
+                className="px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm cursor-pointer"
+              >
+                ยืนยันการลบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Factory Management Modal */}
       {isFactoryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
@@ -1399,7 +1815,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             <div className="p-5 overflow-y-auto space-y-5">
               {factoryActionError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <Check className="w-4 h-4 flex-shrink-0" />
                   <span>{factoryActionError}</span>
                 </div>
               )}
@@ -1586,6 +2002,35 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         vehicles={vehicles}
         factoryList={factoryList}
         initialFactory={printModalFactory}
+        userName={userName}
+      />
+
+      {/* AdBlue Refill Modal (New & Edit) */}
+      <AdBlueRefillModal
+        isOpen={isAdBlueModalOpen}
+        onClose={() => {
+          setIsAdBlueModalOpen(false);
+          setAdBluePreselectedVehicle(null);
+          setEditingAdBlueRecord(null);
+        }}
+        vehicles={vehicles}
+        adBlueOils={adBlueOils}
+        userName={userName}
+        preselectedVehicle={adBluePreselectedVehicle}
+        editingRecord={editingAdBlueRecord}
+        onSuccess={() => {
+          setSuccessToast('บันทึกข้อมูลการเติมน้ำยา AdBlue เรียบร้อยแล้ว');
+          setTimeout(() => setSuccessToast(null), 3000);
+        }}
+      />
+
+      {/* AdBlue Print Modal */}
+      <AdBluePrintModal
+        isOpen={isAdBluePrintOpen}
+        onClose={() => setIsAdBluePrintOpen(false)}
+        records={adBlueRefills}
+        factoryList={factoryList}
+        initialFactory={selectedFactory}
         userName={userName}
       />
     </div>

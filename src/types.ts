@@ -73,3 +73,22 @@ export interface UserProfile {
   provider: string;
   lastLoginAt: string;
 }
+
+export interface AdBlueRefillRecord {
+  id: string;
+  vehicleId?: string; // รหัสอ้างอิงรถในระบบ
+  licensePlate: string; // ทะเบียนรถ เช่น 70-1122 กทม.
+  factory: string; // โรงงาน เช่น โรงงาน 1, โรงงาน 2
+  date: string; // วัน/เดือน/ปี ที่เติม (YYYY-MM-DD หรือ ISO string)
+  percentBefore: number; // %ก่อนเติม เช่น 15
+  percentAfter: number; // %หลังเติม เช่น 100
+  litersFilled: number; // จำนวนลิตรที่เติม เช่น 20
+  filledBy: string; // ผู้เติม เช่น ช่างสุรชัย
+  currentMileage?: number; // เลขไมล์ ณ เวลาที่เติม (ถ้ามี)
+  notes?: string; // หมายเหตุเพิ่มเติม เช่น เติมจากถัง 1,000L หรือ แกลลอน
+  deductedFromStock?: boolean; // ตัดสต๊อกจากคลังน้ำยา AdBlue หรือไม่
+  oilId?: string; // รหัสสินค้า AdBlue ที่ตัดสต๊อก
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+}

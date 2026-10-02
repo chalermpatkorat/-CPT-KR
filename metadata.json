@@ -1,0 +1,6 @@
+{
+  "name": "ระบบจัดการน้ำมันเครื่อง&น้ำยาแอดบลู CPT KR",
+  "description": "ระบบจัดการสต๊อกน้ำมันเครื่องแบบเรียลไทม์ ตรวจสอบคงเหลือ เบิกจ่าย รับเข้า รายงานสต๊อกพร้อมสั่งพิมพ์ ซิงค์ข้อมูลอัตโนมัติผ่าน Firebase และเชื่อมต่อ Google Sheets",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

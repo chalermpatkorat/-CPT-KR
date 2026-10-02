@@ -1,0 +1,293 @@
+{
+  "entities": {
+    "OilItem": {
+      "title": "OilItem",
+      "description": "Engine oil stock inventory record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the oil item"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the engine oil product",
+          "maxLength": 150
+        },
+        "brand": {
+          "type": "string",
+          "description": "Brand manufacturer of the oil",
+          "maxLength": 100
+        },
+        "viscosity": {
+          "type": "string",
+          "description": "Viscosity grade like 5W-30, 10W-40",
+          "maxLength": 30
+        },
+        "oilType": {
+          "type": "string",
+          "description": "Type of oil (Fully Synthetic, Semi Synthetic, Mineral)",
+          "maxLength": 50
+        },
+        "currentStock": {
+          "type": "number",
+          "description": "Current quantity in stock in liters"
+        },
+        "totalUsed": {
+          "type": "number",
+          "description": "Cumulative liters dispensed"
+        },
+        "totalReceived": {
+          "type": "number",
+          "description": "Cumulative liters received"
+        },
+        "minStockThreshold": {
+          "type": "number",
+          "description": "Low stock alert threshold in liters"
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit of measurement (always 'ลิตร')",
+          "maxLength": 20
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional remarks or vehicle compatibility",
+          "maxLength": 500
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Email or name of user who made the last change",
+          "maxLength": 100
+        }
+      },
+      "required": ["name", "brand", "viscosity", "currentStock", "unit"]
+    },
+    "StockTransaction": {
+      "title": "StockTransaction",
+      "description": "Audit record of dispense or receive action",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for transaction"
+        },
+        "oilId": {
+          "type": "string",
+          "description": "ID of the affected engine oil"
+        },
+        "oilName": {
+          "type": "string",
+          "description": "Name of the engine oil at transaction time",
+          "maxLength": 150
+        },
+        "viscosity": {
+          "type": "string",
+          "description": "Viscosity grade",
+          "maxLength": 30
+        },
+        "type": {
+          "type": "string",
+          "enum": ["dispense", "receive"],
+          "description": "Transaction category"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Volume transacted in liters"
+        },
+        "stockBefore": {
+          "type": "number",
+          "description": "Stock balance prior to transaction"
+        },
+        "stockAfter": {
+          "type": "number",
+          "description": "Stock balance after transaction"
+        },
+        "performedBy": {
+          "type": "string",
+          "description": "Name of member recording the transaction",
+          "maxLength": 100
+        },
+        "recipientOrVehicle": {
+          "type": "string",
+          "description": "Recipient person, department, vehicle license plate, or vendor",
+          "maxLength": 150
+        },
+        "referenceNote": {
+          "type": "string",
+          "description": "Reason, work order notes, or invoice lot number",
+          "maxLength": 500
+        },
+        "date": {
+          "type": "string",
+          "description": "Transaction timestamp ISO or YYYY-MM-DD"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last edit timestamp"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "User who last edited or created this record",
+          "maxLength": 100
+        }
+      },
+      "required": ["oilId", "type", "amount", "performedBy", "date"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Factory fleet vehicle with oil change cycle tracking every 20,000 km",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for vehicle"
+        },
+        "licensePlate": {
+          "type": "string",
+          "description": "Vehicle license plate number",
+          "maxLength": 50
+        },
+        "factory": {
+          "type": "string",
+          "description": "Factory division (โรงงาน 1, โรงงาน 2, โรงงาน 3, โรงงาน 4)",
+          "maxLength": 50
+        },
+        "route": {
+          "type": "string",
+          "description": "Route or vehicle line",
+          "maxLength": 100
+        },
+        "distancePerTrip": {
+          "type": "number",
+          "description": "Distance per trip in kilometers"
+        },
+        "tripsPerMonth": {
+          "type": "number",
+          "description": "Number of round trips per month"
+        },
+        "currentMileage": {
+          "type": "number",
+          "description": "Current odometer mileage reading in kilometers"
+        },
+        "lastOilChangeMileage": {
+          "type": "number",
+          "description": "Odometer mileage at last engine oil change"
+        },
+        "lastOilChangeDate": {
+          "type": "string",
+          "description": "Date of last engine oil change"
+        },
+        "oilChangeIntervalKm": {
+          "type": "number",
+          "description": "Service interval (fixed at 20,000 km)"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Driver name or vehicle remarks",
+          "maxLength": 300
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "User who last edited this record",
+          "maxLength": 100
+        }
+      },
+      "required": ["licensePlate", "factory", "currentMileage", "lastOilChangeMileage"]
+    },
+    "FactoryItem": {
+      "title": "FactoryItem",
+      "description": "Factory or plant division",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for factory"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the factory (e.g. โรงงาน 1, โรงงาน 2, โรงงานบางนา)",
+          "maxLength": 100
+        },
+        "order": {
+          "type": "number",
+          "description": "Display order index"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "User who last updated this record"
+        }
+      },
+      "required": ["name"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "System registered user profile",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 100
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user",
+          "maxLength": 100
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL",
+          "maxLength": 500
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "Last sign in timestamp"
+        }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/oils/{oilId}": {
+      "schema": "OilItem",
+      "description": "Engine oil inventory documents"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "StockTransaction",
+      "description": "Engine oil stock receive and dispense transaction history"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Fleet vehicles and 20,000 km oil change cycle tracking"
+    },
+    "/factories/{factoryId}": {
+      "schema": "FactoryItem",
+      "description": "Factory divisions and plant locations"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Registered team member profiles"
+    }
+  }
+}

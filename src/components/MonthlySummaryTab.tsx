@@ -96,13 +96,35 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     }
   };
 
+  // Helper to check if a vehicle's monthly usage was cleared by user
+  const isVehicleMonthCleared = (plateOrRecipient: string, monthKey: string) => {
+    const clean = (plateOrRecipient || '').trim().toLowerCase();
+    if (!clean) return false;
+    for (const key of clearedVehicleMonths) {
+      if (!key.startsWith(`${monthKey}_`)) continue;
+      const clearedPlate = key.replace(`${monthKey}_`, '');
+      if (
+        clearedPlate &&
+        (clean === clearedPlate ||
+          clean.includes(clearedPlate) ||
+          clearedPlate.includes(clean))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // 1. Calculate Monthly Breakdown for the selected Year (All 12 Months)
   const monthsData = monthNamesThai.map((monthName, idx) => {
     const monthKey = `${selectedYear}-${String(idx + 1).padStart(2, '0')}`;
 
-    // Dispense transactions in this month
+    // Dispense transactions in this month (exclude cleared vehicles if any cached)
     const monthTxs = transactions.filter(
-      (tx) => tx.type === 'dispense' && getYearMonth(tx.date) === monthKey
+      (tx) =>
+        tx.type === 'dispense' &&
+        getYearMonth(tx.date) === monthKey &&
+        !isVehicleMonthCleared(tx.recipientOrVehicle || '', monthKey)
     );
 
     // Engine oil dispenses (excluding AdBlue)
@@ -111,7 +133,9 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
 
     // AdBlue refills in this month from adBlueRefills dataset
     const monthAdBlueRefills = adBlueRefills.filter(
-      (r) => getYearMonth(r.date) === monthKey
+      (r) =>
+        getYearMonth(r.date) === monthKey &&
+        !isVehicleMonthCleared(r.licensePlate || '', monthKey)
     );
     const adBlueRefillLiters = monthAdBlueRefills.reduce((sum, r) => sum + (r.litersFilled || 0), 0);
 
@@ -227,8 +251,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
   // Filter vehicle breakdown by factory and exclude cleared records
   const vehicleList = Object.values(vehicleUsageMap)
     .filter((item) => {
-      const key = `${selectedMonth}_${item.licensePlate.trim().toLowerCase()}`;
-      return !clearedVehicleMonths.has(key);
+      return !isVehicleMonthCleared(item.licensePlate, selectedMonth);
     })
     .filter((item) => factoryFilter === 'all' || item.factory === factoryFilter)
     .filter((item) => item.engineOilLiters > 0 || item.adBlueLiters > 0)

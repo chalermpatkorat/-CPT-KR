@@ -202,10 +202,10 @@ export default function App() {
           setSheetsUrl(retryRes.spreadsheetUrl);
           setSyncNotice('ซิงค์ข้อมูลสต๊อกและประวัติลงใน Google Sheets สำเร็จเรียบร้อย!');
         } catch (e: any) {
-          alert(e.message || 'ไม่สามารถเชื่อมต่อ Google Sheets ได้ กรุณาตรวจสอบสิทธิ์');
+          setSyncNotice(e.message || 'ไม่สามารถเชื่อมต่อ Google Sheets ได้ กรุณาตรวจสอบสิทธิ์');
         }
       } else {
-        alert(err.message || 'เกิดข้อผิดพลาดในการซิงค์ข้อมูลไปยัง Google Sheets');
+        setSyncNotice(err.message || 'เกิดข้อผิดพลาดในการซิงค์ข้อมูลไปยัง Google Sheets');
       }
     } finally {
       setIsSyncingSheets(false);

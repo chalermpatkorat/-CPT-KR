@@ -107,6 +107,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
 
   // Quick Scheduling Modal (กำหนดวันเรียกรถเข้า)
   const [schedulingVehicle, setSchedulingVehicle] = useState<Vehicle | null>(null);
@@ -142,6 +143,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const [factoryActionError, setFactoryActionError] = useState<string | null>(null);
   const [factoryActionSuccess, setFactoryActionSuccess] = useState<string | null>(null);
   const [factoryLoading, setFactoryLoading] = useState(false);
+  const [factoryToDelete, setFactoryToDelete] = useState<FactoryItem | null>(null);
 
   // Handlers for Factory Management
   const handleCreateFactory = async (e: React.FormEvent) => {
@@ -195,10 +197,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       setFactoryActionError(
         `ไม่สามารถลบ "${f.name}" ได้เนื่องจากมีรถ ${assignedVehicles.length} คันสังกัดอยู่ กรุณาย้ายหรือเปลี่ยนโรงงานของรถก่อนลบ`
       );
+      setFactoryToDelete(null);
       return;
     }
-
-    if (!window.confirm(`ยืนยันการลบ "${f.name}" ออกจากระบบ?`)) return;
 
     setFactoryLoading(true);
     setFactoryActionError(null);
@@ -207,6 +208,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     try {
       await deleteFactory(f.id, f.name);
       setFactoryActionSuccess(`ลบโรงงาน "${f.name}" สำเร็จเรียบร้อย`);
+      setFactoryToDelete(null);
       if (selectedFactory === f.name) {
         setSelectedFactory('all');
       }
@@ -316,7 +318,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       setAdBlueToDelete(null);
       setTimeout(() => setSuccessToast(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'ลบไม่สำเร็จ');
+      setErrorToast(err.message || 'ลบไม่สำเร็จ');
+      setTimeout(() => setErrorToast(null), 4000);
     }
   };
 
@@ -400,7 +403,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       setSchedulingVehicle(null);
       setTimeout(() => setSuccessToast(null), 3500);
     } catch (err: any) {
-      alert(err.message || 'บันทึกวันนัดหมายไม่สำเร็จ');
+      setErrorToast(err.message || 'บันทึกวันนัดหมายไม่สำเร็จ');
+      setTimeout(() => setErrorToast(null), 4000);
     } finally {
       setScheduleSubmitting(false);
     }
@@ -412,7 +416,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
     const km = parseFloat(serviceMileage);
     if (isNaN(km) || km <= 0) {
-      alert('กรุณากรอกเลขไมล์ที่เปลี่ยนถ่ายให้ถูกต้อง');
+      setErrorToast('กรุณากรอกเลขไมล์ที่เปลี่ยนถ่ายให้ถูกต้อง');
+      setTimeout(() => setErrorToast(null), 4000);
       return;
     }
 
@@ -420,7 +425,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     const amountNum = parseFloat(serviceAmountLiters) || 4;
 
     if (serviceDeductStock && targetOil && targetOil.currentStock < amountNum) {
-      alert(`สต๊อก ${targetOil.name} ไม่เพียงพอ (คงเหลือ ${targetOil.currentStock} ลิตร, ต้องการเบิก ${amountNum} ลิตร)`);
+      setErrorToast(`สต๊อก ${targetOil.name} ไม่เพียงพอ (คงเหลือ ${targetOil.currentStock} ลิตร, ต้องการเบิก ${amountNum} ลิตร)`);
+      setTimeout(() => setErrorToast(null), 4000);
       return;
     }
 
@@ -451,7 +457,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       setTimeout(() => setSuccessToast(null), 3500);
     } catch (err: any) {
       console.error('Service error:', err);
-      alert(err.message || 'บันทึกเปลี่ยนถ่ายไม่สำเร็จ');
+      setErrorToast(err.message || 'บันทึกเปลี่ยนถ่ายไม่สำเร็จ');
+      setTimeout(() => setErrorToast(null), 4000);
     } finally {
       setServiceSubmitting(false);
     }
@@ -500,7 +507,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
+      {/* Toast Notifications */}
       {successToast && (
         <div className="bg-emerald-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2 no-print">
           <div className="flex items-center gap-2 text-sm font-bold">
@@ -516,6 +523,21 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         </div>
       )}
 
+      {errorToast && (
+        <div className="bg-red-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2 no-print">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+            <span>{errorToast}</span>
+          </div>
+          <button
+            onClick={() => setErrorToast(null)}
+            className="p-1 hover:bg-white/20 rounded-lg cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Permission / Read-Only Warning Banner */}
       {!isAdmin && (
         <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between gap-3 text-amber-950 no-print text-xs sm:text-sm shadow-2xs">
@@ -524,7 +546,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             <div>
               <p className="font-bold">โหมดดูข้อมูลและสั่งพิมพ์รายงาน (Read-Only)</p>
               <p className="text-xs text-amber-800">
-                สิทธิ์การเพิ่ม ลบ หรือแก้ไขข้อมูลสงวนสิทธิ์เฉพาะ <strong>chalermpat.korat1499@gmail.com</strong> เท่านั้น (ผู้ใช้งานทั่วไปสามารถดูข้อมูล ค้นหา และสั่งพิมพ์รายงาน/ส่งออก Excel ได้ตามปกติ)
+                สิทธิ์การเพิ่ม ลบ หรือแก้ไขข้อมูลสงวนสิทธิ์เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น (ผู้ใช้งานทั่วไปสามารถดูข้อมูล ค้นหา และสั่งพิมพ์รายงาน/ส่งออก Excel ได้ตามปกติ)
               </p>
             </div>
           </div>
@@ -2125,35 +2147,56 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEditFactory(f)}
-                                  title="แก้ไขชื่อโรงงาน"
-                                  className="px-2.5 py-1 text-slate-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                  <span>แก้ไขชื่อ</span>
-                                </button>
+                              {factoryToDelete?.id === f.id ? (
+                                <div className="flex items-center gap-1.5 animate-in fade-in">
+                                  <span className="text-xs text-red-600 font-bold">ยืนยันลบ?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFactoryItem(f)}
+                                    disabled={factoryLoading}
+                                    className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                                  >
+                                    ลบ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFactoryToDelete(null)}
+                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer"
+                                  >
+                                    ยกเลิก
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEditFactory(f)}
+                                    title="แก้ไขชื่อโรงงาน"
+                                    className="px-2.5 py-1 text-slate-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                    <span>แก้ไขชื่อ</span>
+                                  </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteFactoryItem(f)}
-                                  title={
-                                    count > 0
-                                      ? `ไม่สามารถลบได้เนื่องจากมีรถ ${count} คันสังกัดอยู่`
-                                      : 'ลบโรงงาน'
-                                  }
-                                  disabled={count > 0}
-                                  className={`p-1.5 rounded-lg text-xs transition ${
-                                    count > 0
-                                      ? 'text-slate-300 cursor-not-allowed'
-                                      : 'text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer'
-                                  }`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFactoryToDelete(f)}
+                                    title={
+                                      count > 0
+                                        ? `ไม่สามารถลบได้เนื่องจากมีรถ ${count} คันสังกัดอยู่`
+                                        : 'ลบโรงงาน'
+                                    }
+                                    disabled={count > 0}
+                                    className={`p-1.5 rounded-lg text-xs transition ${
+                                      count > 0
+                                        ? 'text-slate-300 cursor-not-allowed'
+                                        : 'text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer'
+                                    }`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

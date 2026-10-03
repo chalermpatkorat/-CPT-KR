@@ -150,6 +150,14 @@ export const AdBlueRefillModal: React.FC<AdBlueRefillModalProps> = ({
       return;
     }
 
+    const safeIsoDate = (dStr: string) => {
+      try {
+        const d = new Date(dStr);
+        if (!isNaN(d.getTime())) return d.toISOString();
+      } catch {}
+      return new Date().toISOString();
+    };
+
     setLoading(true);
 
     try {
@@ -160,7 +168,7 @@ export const AdBlueRefillModal: React.FC<AdBlueRefillModalProps> = ({
             vehicleId: selectedVehicleId || undefined,
             licensePlate: licensePlate.trim(),
             factory,
-            date: new Date(date).toISOString(),
+            date: safeIsoDate(date),
             percentBefore: pBefore,
             percentAfter: pAfter,
             litersFilled: liters,
@@ -177,7 +185,7 @@ export const AdBlueRefillModal: React.FC<AdBlueRefillModalProps> = ({
               vehicleId: selectedVehicleId || undefined,
               licensePlate: licensePlate.trim(),
               factory,
-              date: new Date(date).toISOString(),
+              date: safeIsoDate(date),
               percentBefore: pBefore,
               percentAfter: pAfter,
               litersFilled: liters,

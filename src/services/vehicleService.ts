@@ -15,6 +15,57 @@ const VEHICLES_COLLECTION = 'vehicles';
 const FACTORIES_COLLECTION = 'factories';
 const LOCAL_VEHICLES_KEY = 'cpt_stock_vehicles_data';
 const LOCAL_FACTORIES_KEY = 'cpt_stock_factories_data';
+const DELETED_VEHICLES_KEY = 'cpt_deleted_vehicle_ids';
+const VEHICLES_INITIALIZED_KEY = 'cpt_vehicles_initialized';
+
+// Helper to remove undefined fields which Firestore strictly rejects with error
+export const cleanForFirestore = <T extends Record<string, any>>(data: T): Record<string, any> => {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+};
+
+// Persistent tracker for deleted vehicle IDs to prevent them from reviving
+export const getDeletedVehicleIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(DELETED_VEHICLES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed);
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return new Set();
+};
+
+export const markVehicleIdDeleted = (id: string) => {
+  const set = getDeletedVehicleIds();
+  set.add(id);
+  try {
+    localStorage.setItem(DELETED_VEHICLES_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    // Ignore
+  }
+};
+
+export const unmarkVehicleIdDeleted = (id: string) => {
+  const set = getDeletedVehicleIds();
+  if (set.has(id)) {
+    set.delete(id);
+    try {
+      localStorage.setItem(DELETED_VEHICLES_KEY, JSON.stringify(Array.from(set)));
+    } catch {
+      // Ignore
+    }
+  }
+};
 
 // Helper to run background tasks safely and report sync errors
 const runInBackground = (task: () => Promise<any>) => {
@@ -164,22 +215,26 @@ let cachedVehicles: Vehicle[] | null = null;
 let cachedFactories: FactoryItem[] | null = null;
 
 export const getLocalVehicles = (): Vehicle[] => {
+  const deletedSet = getDeletedVehicleIds();
+
   if (cachedVehicles) {
-    return cachedVehicles;
+    return cachedVehicles.filter((v) => !deletedSet.has(v.id));
   }
   try {
     const raw = localStorage.getItem(LOCAL_VEHICLES_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const sanitized = parsed.map((v: Vehicle) => ({
-          ...v,
-          currentMileage: Number(v.currentMileage) || 0,
-          lastOilChangeMileage:
-            v.lastOilChangeMileage && Number(v.lastOilChangeMileage) > 0
-              ? Number(v.lastOilChangeMileage)
-              : Number(v.currentMileage) || 0,
-        }));
+      if (Array.isArray(parsed)) {
+        const sanitized = parsed
+          .filter((v: Vehicle) => !deletedSet.has(v.id))
+          .map((v: Vehicle) => ({
+            ...v,
+            currentMileage: Number(v.currentMileage) || 0,
+            lastOilChangeMileage:
+              v.lastOilChangeMileage && Number(v.lastOilChangeMileage) > 0
+                ? Number(v.lastOilChangeMileage)
+                : Number(v.currentMileage) || 0,
+          }));
         cachedVehicles = sanitized;
         return sanitized;
       }
@@ -187,14 +242,23 @@ export const getLocalVehicles = (): Vehicle[] => {
   } catch {
     // Ignore
   }
+
+  const isAlreadyInit = localStorage.getItem(VEHICLES_INITIALIZED_KEY) === 'true';
+  if (isAlreadyInit) {
+    cachedVehicles = [];
+    return [];
+  }
+
   const initialized: Vehicle[] = INITIAL_VEHICLES.map((v, idx) => ({
     ...v,
     id: 'veh_' + (idx + 1),
     updatedAt: new Date().toISOString(),
-  }));
+  })).filter((v) => !deletedSet.has(v.id));
+
   cachedVehicles = initialized;
   try {
     localStorage.setItem(LOCAL_VEHICLES_KEY, JSON.stringify(initialized));
+    localStorage.setItem(VEHICLES_INITIALIZED_KEY, 'true');
   } catch {
     // Ignore
   }
@@ -202,8 +266,16 @@ export const getLocalVehicles = (): Vehicle[] => {
 };
 
 export const saveLocalVehicles = (vehicles: Vehicle[]) => {
-  cachedVehicles = vehicles;
-  notifyVehicleListeners(vehicles);
+  const deletedSet = getDeletedVehicleIds();
+  const sanitized = vehicles.filter((v) => !deletedSet.has(v.id));
+  cachedVehicles = sanitized;
+  try {
+    localStorage.setItem(LOCAL_VEHICLES_KEY, JSON.stringify(sanitized));
+    localStorage.setItem(VEHICLES_INITIALIZED_KEY, 'true');
+  } catch {
+    // Ignore
+  }
+  notifyVehicleListeners(sanitized);
 };
 
 export const getLocalFactories = (): FactoryItem[] => {
@@ -428,20 +500,40 @@ export const subscribeVehicles = (
       q,
       async (snapshot) => {
         setCloudSyncStatus('connected', null);
-        if (snapshot.empty) {
+        const isSeeded = localStorage.getItem(VEHICLES_INITIALIZED_KEY) === 'true';
+        if (snapshot.empty && !isSeeded) {
           await seedInitialVehicles();
+          localStorage.setItem(VEHICLES_INITIALIZED_KEY, 'true');
           return;
         }
-        const items: Vehicle[] = [];
+
+        const deletedSet = getDeletedVehicleIds();
+        const firestoreItems: Vehicle[] = [];
         snapshot.forEach((docSnap) => {
-          items.push({
-            ...(docSnap.data() as Vehicle),
-            id: docSnap.id,
-          });
+          if (!deletedSet.has(docSnap.id)) {
+            firestoreItems.push({
+              ...(docSnap.data() as Vehicle),
+              id: docSnap.id,
+            });
+          }
         });
-        if (items.length > 0) {
-          notifyVehicleListeners(items);
+
+        // Merge with locally added vehicles that haven't synced to Firestore yet
+        const currentLocal = getLocalVehicles();
+        const firestoreIds = new Set(firestoreItems.map((v) => v.id));
+        const unsyncedLocal = currentLocal.filter(
+          (v) => !firestoreIds.has(v.id) && !deletedSet.has(v.id)
+        );
+
+        for (const localV of unsyncedLocal) {
+          runInBackground(async () => {
+            const docRef = doc(collection(db, VEHICLES_COLLECTION), localV.id);
+            await setDoc(docRef, cleanForFirestore(localV));
+          });
         }
+
+        const combined = [...firestoreItems, ...unsyncedLocal];
+        saveLocalVehicles(combined);
       },
       (error) => {
         console.warn('Firestore vehicles notice:', error.message);
@@ -471,11 +563,14 @@ export const seedInitialVehicles = async () => {
     for (let i = 0; i < INITIAL_VEHICLES.length; i++) {
       const v = INITIAL_VEHICLES[i];
       const newRef = doc(collection(db, VEHICLES_COLLECTION), 'veh_' + (i + 1));
-      batch.set(newRef, {
-        ...v,
-        id: newRef.id,
-        updatedAt: now,
-      });
+      batch.set(
+        newRef,
+        cleanForFirestore({
+          ...v,
+          id: newRef.id,
+          updatedAt: now,
+        })
+      );
     }
     await batch.commit();
     setCloudSyncStatus('connected', null);
@@ -492,6 +587,8 @@ export const addVehicle = async (
   const newId = 'veh_' + Date.now();
   const now = new Date().toISOString();
   const currentKm = Number(data.currentMileage) || 0;
+
+  unmarkVehicleIdDeleted(newId);
 
   const newVehicle: Vehicle = {
     id: newId,
@@ -515,7 +612,7 @@ export const addVehicle = async (
 
   runInBackground(async () => {
     const newRef = doc(collection(db, VEHICLES_COLLECTION), newId);
-    await setDoc(newRef, newVehicle);
+    await setDoc(newRef, cleanForFirestore(newVehicle));
   });
 
   return newId;
@@ -537,11 +634,11 @@ export const updateVehicle = async (
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
     await setDoc(
       docRef,
-      {
+      cleanForFirestore({
         ...updates,
         updatedAt: now,
         updatedBy: userName || 'สมาชิก',
-      },
+      }),
       { merge: true }
     );
   });
@@ -549,6 +646,8 @@ export const updateVehicle = async (
 
 // Delete vehicle
 export const deleteVehicle = async (vehicleId: string): Promise<void> => {
+  markVehicleIdDeleted(vehicleId);
+
   const localItems = getLocalVehicles().filter((v) => v.id !== vehicleId);
   notifyVehicleListeners(localItems);
 
@@ -584,13 +683,13 @@ export const recordOilChange = async (
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
     await setDoc(
       docRef,
-      {
+      cleanForFirestore({
         lastOilChangeMileage: newMileage,
         currentMileage: newMileage,
         lastOilChangeDate: changeDate,
         updatedAt: now,
         updatedBy: userName,
-      },
+      }),
       { merge: true }
     );
   });
@@ -619,11 +718,11 @@ export const scheduleVehicleDueDate = async (
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
     await setDoc(
       docRef,
-      {
+      cleanForFirestore({
         nextOilChangeDueDate: dueDate || null,
         updatedAt: now,
         updatedBy: userName,
-      },
+      }),
       { merge: true }
     );
   });

@@ -111,17 +111,17 @@ export const syncStockToGoogleSheets = async (
 
     return [
       index + 1,
-      item.name,
-      item.brand,
-      item.viscosity,
-      item.oilType,
-      item.currentStock,
+      item.name || '-',
+      item.brand || '-',
+      item.viscosity || '-',
+      item.oilType || '-',
+      item.currentStock || 0,
       item.totalUsed || 0,
       item.totalReceived || 0,
-      item.minStockThreshold,
+      item.minStockThreshold || 0,
       statusText,
       item.notes || '-',
-      new Date(item.updatedAt).toLocaleString('th-TH'),
+      item.updatedAt ? new Date(item.updatedAt).toLocaleString('th-TH') : '-',
     ];
   });
 
@@ -144,13 +144,13 @@ export const syncStockToGoogleSheets = async (
     const typeLabel = tx.type === 'dispense' ? 'เบิกจ่าย (-)' : 'รับเข้า (+)';
     return [
       index + 1,
-      new Date(tx.date).toLocaleString('th-TH'),
+      tx.date ? new Date(tx.date).toLocaleString('th-TH') : '-',
       typeLabel,
-      tx.oilName,
-      tx.viscosity,
-      tx.amount,
-      tx.stockBefore,
-      tx.stockAfter,
+      tx.oilName || '-',
+      tx.viscosity || '-',
+      tx.amount || 0,
+      tx.stockBefore || 0,
+      tx.stockAfter || 0,
       tx.recipientOrVehicle || '-',
       tx.performedBy || '-',
       tx.referenceNote || '-',

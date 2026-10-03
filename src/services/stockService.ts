@@ -809,13 +809,18 @@ export const deleteTransactionsForVehicleInMonth = async (
 ): Promise<number> => {
   const txs = getLocalTransactions();
   const cleanPlate = licensePlate.trim().toLowerCase();
+  if (!cleanPlate || cleanPlate === 'อื่นๆ') return 0;
   
   const toDelete = txs.filter((tx) => {
     if (tx.type !== 'dispense') return false;
     const m = (tx.date || tx.createdAt || '').slice(0, 7);
     if (m !== yearMonth) return false;
     const recipient = (tx.recipientOrVehicle || '').toLowerCase();
-    return recipient.includes(cleanPlate) || cleanPlate.includes(recipient);
+    return (
+      recipient === cleanPlate ||
+      recipient.includes(cleanPlate) ||
+      (cleanPlate.length >= 3 && cleanPlate.includes(recipient.trim()))
+    );
   });
 
   for (const tx of toDelete) {

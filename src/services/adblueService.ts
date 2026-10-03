@@ -462,13 +462,18 @@ export const deleteAdBlueRefillsForVehicleInMonth = async (
   userName?: string
 ): Promise<number> => {
   const cleanPlate = licensePlate.trim().toLowerCase();
+  if (!cleanPlate || cleanPlate === 'อื่นๆ') return 0;
   const records = getLocalAdBlueRefills();
 
   const toDelete = records.filter((r) => {
     const m = (r.date || r.createdAt || '').slice(0, 7);
     if (m !== yearMonth) return false;
-    const p = r.licensePlate.trim().toLowerCase();
-    return p === cleanPlate || p.includes(cleanPlate) || cleanPlate.includes(p);
+    const p = (r.licensePlate || '').trim().toLowerCase();
+    return (
+      p === cleanPlate ||
+      p.includes(cleanPlate) ||
+      (cleanPlate.length >= 3 && cleanPlate.includes(p))
+    );
   });
 
   for (const r of toDelete) {

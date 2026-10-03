@@ -18,6 +18,17 @@ const TRANSACTIONS_COLLECTION = 'transactions';
 const LOCAL_OILS_KEY = 'cpt_stock_oils_data';
 const LOCAL_TXS_KEY = 'cpt_stock_txs_data';
 
+// Helper to remove undefined fields which Firestore rejects with error
+export const cleanForFirestore = <T extends Record<string, any>>(data: T): Record<string, any> => {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+};
+
 // Helper to run background tasks safely and report sync errors
 const runInBackground = (task: () => Promise<any>) => {
   queueMicrotask(() => {
@@ -470,7 +481,7 @@ export const recordDispense = async (params: {
   date?: string;
   performedBy: string;
   vehicleId?: string;
-}): Promise<void> => {
+}): Promise<string> => {
   const { oil, amount, recipientOrVehicle, currentMileage, referenceNote, date, performedBy, vehicleId } = params;
 
   if (amount <= 0) {
@@ -540,15 +551,15 @@ export const recordDispense = async (params: {
           updatedBy: performedBy,
         });
       } else {
-        transaction.set(oilRef, {
+        transaction.set(oilRef, cleanForFirestore({
           ...oil,
           currentStock: newStock,
           totalUsed: newUsed,
           updatedAt: nowIso,
           updatedBy: performedBy,
-        });
+        }));
       }
-      transaction.set(txRef, newTx);
+      transaction.set(txRef, cleanForFirestore(newTx));
 
       if (vehicleId && currentMileage && Number(currentMileage) > 0) {
         const vRef = doc(db, 'vehicles', vehicleId);
@@ -564,6 +575,8 @@ export const recordDispense = async (params: {
       }
     });
   });
+
+  return newTxId;
 };
 
 // Record receive
@@ -637,7 +650,7 @@ export const recordReceive = async (params: {
           updatedBy: performedBy,
         });
       }
-      transaction.set(txRef, newTx);
+      transaction.set(txRef, cleanForFirestore(newTx));
     });
   });
 };
@@ -786,4 +799,28 @@ export const deleteTransactionRecord = async (
       transaction.delete(txRef);
     });
   });
+};
+
+// Delete all dispense transactions for a specific vehicle in a given month (YYYY-MM) with automatic stock restoration
+export const deleteTransactionsForVehicleInMonth = async (
+  licensePlate: string,
+  yearMonth: string,
+  userName: string
+): Promise<number> => {
+  const txs = getLocalTransactions();
+  const cleanPlate = licensePlate.trim().toLowerCase();
+  
+  const toDelete = txs.filter((tx) => {
+    if (tx.type !== 'dispense') return false;
+    const m = (tx.date || tx.createdAt || '').slice(0, 7);
+    if (m !== yearMonth) return false;
+    const recipient = (tx.recipientOrVehicle || '').toLowerCase();
+    return recipient.includes(cleanPlate) || cleanPlate.includes(recipient);
+  });
+
+  for (const tx of toDelete) {
+    await deleteTransactionRecord(tx, userName);
+  }
+
+  return toDelete.length;
 };

@@ -10,11 +10,62 @@ import {
 } from 'firebase/firestore';
 import { db, setCloudSyncStatus } from '../lib/firebase';
 import { AdBlueRefillRecord, OilItem } from '../types';
-import { recordDispense } from './stockService';
+import { recordDispense, deleteTransactionRecord, getLocalTransactions } from './stockService';
 import * as XLSX from 'xlsx';
 
 const ADBLUE_COLLECTION = 'adblue_refills';
 const LOCAL_ADBLUE_KEY = 'cpt_adblue_refills_data';
+const DELETED_ADBLUE_KEY = 'cpt_deleted_adblue_ids';
+const ADBLUE_INITIALIZED_KEY = 'cpt_adblue_initialized';
+
+// Helper to remove undefined fields which Firestore strictly rejects with error
+export const cleanForFirestore = <T extends Record<string, any>>(data: T): Record<string, any> => {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+};
+
+// Persistent tracker for deleted AdBlue record IDs to prevent them from reviving
+export const getDeletedAdBlueIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(DELETED_ADBLUE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed);
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return new Set();
+};
+
+export const markAdBlueIdDeleted = (id: string) => {
+  const set = getDeletedAdBlueIds();
+  set.add(id);
+  try {
+    localStorage.setItem(DELETED_ADBLUE_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    // Ignore
+  }
+};
+
+export const unmarkAdBlueIdDeleted = (id: string) => {
+  const set = getDeletedAdBlueIds();
+  if (set.has(id)) {
+    set.delete(id);
+    try {
+      localStorage.setItem(DELETED_ADBLUE_KEY, JSON.stringify(Array.from(set)));
+    } catch {
+      // Ignore
+    }
+  }
+};
 
 const runInBackground = (task: () => Promise<any>) => {
   queueMicrotask(() => {
@@ -133,31 +184,47 @@ let cachedAdBlueRefills: AdBlueRefillRecord[] | null = null;
 const adBlueListeners: Array<(records: AdBlueRefillRecord[]) => void> = [];
 
 export const getLocalAdBlueRefills = (): AdBlueRefillRecord[] => {
+  const deletedSet = getDeletedAdBlueIds();
+
   if (cachedAdBlueRefills) {
-    return cachedAdBlueRefills;
+    return cachedAdBlueRefills.filter((r) => !deletedSet.has(r.id));
   }
+
   try {
     const raw = localStorage.getItem(LOCAL_ADBLUE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        cachedAdBlueRefills = parsed;
-        return parsed;
+      if (Array.isArray(parsed)) {
+        const filtered = parsed.filter((item: AdBlueRefillRecord) => !deletedSet.has(item.id));
+        cachedAdBlueRefills = filtered;
+        return filtered;
       }
     }
   } catch {
     // Ignore
   }
+
+  // Only initialize default data if never initialized before and not cleared
+  const isAlreadyInit = localStorage.getItem(ADBLUE_INITIALIZED_KEY) === 'true';
+  if (isAlreadyInit) {
+    cachedAdBlueRefills = [];
+    return [];
+  }
+
   const now = new Date().toISOString();
-  const initRecords: AdBlueRefillRecord[] = INITIAL_ADBLUE_REFILLS.map((item, idx) => ({
-    ...item,
-    id: 'adblue_' + (idx + 1),
-    createdAt: item.date ? new Date(item.date).toISOString() : now,
-    updatedAt: now,
-  }));
+  const initRecords: AdBlueRefillRecord[] = INITIAL_ADBLUE_REFILLS
+    .map((item, idx) => ({
+      ...item,
+      id: 'adblue_' + (idx + 1),
+      createdAt: item.date ? new Date(item.date).toISOString() : now,
+      updatedAt: now,
+    }))
+    .filter((item) => !deletedSet.has(item.id));
+
   cachedAdBlueRefills = initRecords;
   try {
     localStorage.setItem(LOCAL_ADBLUE_KEY, JSON.stringify(initRecords));
+    localStorage.setItem(ADBLUE_INITIALIZED_KEY, 'true');
   } catch {
     // Ignore
   }
@@ -165,13 +232,16 @@ export const getLocalAdBlueRefills = (): AdBlueRefillRecord[] => {
 };
 
 export const saveLocalAdBlueRefills = (records: AdBlueRefillRecord[]) => {
-  cachedAdBlueRefills = records;
+  const deletedSet = getDeletedAdBlueIds();
+  const sanitized = records.filter((r) => !deletedSet.has(r.id));
+  cachedAdBlueRefills = sanitized;
   try {
-    localStorage.setItem(LOCAL_ADBLUE_KEY, JSON.stringify(records));
+    localStorage.setItem(LOCAL_ADBLUE_KEY, JSON.stringify(sanitized));
+    localStorage.setItem(ADBLUE_INITIALIZED_KEY, 'true');
   } catch {
     // Ignore
   }
-  adBlueListeners.forEach((cb) => cb(records));
+  adBlueListeners.forEach((cb) => cb(sanitized));
 };
 
 export const subscribeAdBlueRefills = (
@@ -189,20 +259,48 @@ export const subscribeAdBlueRefills = (
       q,
       async (snapshot) => {
         setCloudSyncStatus('connected', null);
-        if (snapshot.empty) {
+        const isSeeded = localStorage.getItem(ADBLUE_INITIALIZED_KEY) === 'true';
+
+        // Only seed initially if this is the very first time ever run on a clean database
+        if (snapshot.empty && !isSeeded) {
           await seedInitialAdBlueRefills();
+          localStorage.setItem(ADBLUE_INITIALIZED_KEY, 'true');
           return;
         }
-        const items: AdBlueRefillRecord[] = [];
+
+        const deletedSet = getDeletedAdBlueIds();
+        const firestoreItems: AdBlueRefillRecord[] = [];
         snapshot.forEach((docSnap) => {
-          items.push({
-            ...(docSnap.data() as AdBlueRefillRecord),
-            id: docSnap.id,
-          });
+          if (!deletedSet.has(docSnap.id)) {
+            firestoreItems.push({
+              ...(docSnap.data() as AdBlueRefillRecord),
+              id: docSnap.id,
+            });
+          }
         });
-        if (items.length > 0) {
-          saveLocalAdBlueRefills(items);
+
+        // Merge with any freshly added local items that haven't completed Firestore roundtrip yet
+        const currentLocal = getLocalAdBlueRefills();
+        const firestoreIds = new Set(firestoreItems.map((i) => i.id));
+        const unsyncedLocal = currentLocal.filter(
+          (l) => !firestoreIds.has(l.id) && !deletedSet.has(l.id)
+        );
+
+        // Sync pending local items to Firestore in background
+        for (const localItem of unsyncedLocal) {
+          runInBackground(async () => {
+            const docRef = doc(collection(db, ADBLUE_COLLECTION), localItem.id);
+            await setDoc(docRef, cleanForFirestore(localItem));
+          });
         }
+
+        const combined = [...firestoreItems, ...unsyncedLocal].sort((a, b) => {
+          const tA = new Date(a.date || a.createdAt).getTime();
+          const tB = new Date(b.date || b.createdAt).getTime();
+          return tB - tA;
+        });
+
+        saveLocalAdBlueRefills(combined);
       },
       (error) => {
         console.warn('Firestore AdBlue notice:', error.message);
@@ -232,12 +330,15 @@ export const seedInitialAdBlueRefills = async () => {
     for (let i = 0; i < INITIAL_ADBLUE_REFILLS.length; i++) {
       const item = INITIAL_ADBLUE_REFILLS[i];
       const newRef = doc(collection(db, ADBLUE_COLLECTION), 'adblue_' + (i + 1));
-      batch.set(newRef, {
-        ...item,
-        id: newRef.id,
-        createdAt: item.date ? new Date(item.date).toISOString() : now,
-        updatedAt: now,
-      });
+      batch.set(
+        newRef,
+        cleanForFirestore({
+          ...item,
+          id: newRef.id,
+          createdAt: item.date ? new Date(item.date).toISOString() : now,
+          updatedAt: now,
+        })
+      );
     }
     await batch.commit();
     setCloudSyncStatus('connected', null);
@@ -246,7 +347,7 @@ export const seedInitialAdBlueRefills = async () => {
   }
 };
 
-// Add AdBlue Refill record with optional automatic stock deduction
+// Add AdBlue Refill record with reliable local persistence and background cloud sync
 export const addAdBlueRefill = async (
   params: {
     record: Omit<AdBlueRefillRecord, 'id' | 'createdAt' | 'updatedAt'>;
@@ -257,21 +358,15 @@ export const addAdBlueRefill = async (
   const newId = 'adblue_' + Date.now();
   const now = new Date().toISOString();
 
-  const newRecord: AdBlueRefillRecord = {
-    ...params.record,
-    id: newId,
-    createdAt: now,
-    updatedAt: now,
-    updatedBy: userName || 'สมาชิก',
-  };
+  // If this ID was previously marked deleted, unmark it
+  unmarkAdBlueIdDeleted(newId);
 
-  const localItems = [newRecord, ...getLocalAdBlueRefills()];
-  saveLocalAdBlueRefills(localItems);
+  let linkedTxId: string | undefined = undefined;
 
-  // If user linked an AdBlue stock item, deduct from stock
+  // If user linked an AdBlue stock item, deduct from stock and get transaction ID
   if (params.record.deductedFromStock && params.adBlueOilItem) {
     try {
-      await recordDispense({
+      linkedTxId = await recordDispense({
         oil: params.adBlueOilItem,
         amount: params.record.litersFilled,
         recipientOrVehicle: `${params.record.licensePlate} (${params.record.factory})`,
@@ -286,9 +381,21 @@ export const addAdBlueRefill = async (
     }
   }
 
+  const newRecord: AdBlueRefillRecord = {
+    ...params.record,
+    id: newId,
+    dispenseTxId: linkedTxId,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: userName || 'สมาชิก',
+  };
+
+  const localItems = [newRecord, ...getLocalAdBlueRefills()];
+  saveLocalAdBlueRefills(localItems);
+
   runInBackground(async () => {
     const docRef = doc(collection(db, ADBLUE_COLLECTION), newId);
-    await setDoc(docRef, newRecord);
+    await setDoc(docRef, cleanForFirestore(newRecord));
   });
 
   return newId;
@@ -308,19 +415,67 @@ export const updateAdBlueRefill = async (
 
   runInBackground(async () => {
     const docRef = doc(db, ADBLUE_COLLECTION, id);
-    await setDoc(docRef, { ...updates, updatedAt: now, updatedBy: userName }, { merge: true });
+    await setDoc(
+      docRef,
+      cleanForFirestore({ ...updates, updatedAt: now, updatedBy: userName }),
+      { merge: true }
+    );
   });
 };
 
-// Delete AdBlue Refill record
-export const deleteAdBlueRefill = async (id: string): Promise<void> => {
+// Delete AdBlue Refill record permanently (with optional linked stock transaction cleanup)
+export const deleteAdBlueRefill = async (id: string, userName?: string): Promise<void> => {
+  // 1. Mark in permanent deleted set so Firestore onSnapshot will NEVER revive it
+  markAdBlueIdDeleted(id);
+
+  // 2. Find record to check if linked dispense transaction exists
+  const targetRecord = getLocalAdBlueRefills().find((r) => r.id === id);
+
+  // 3. Remove from local state immediately
   const filtered = getLocalAdBlueRefills().filter((r) => r.id !== id);
   saveLocalAdBlueRefills(filtered);
 
+  // 4. If linked to a stock dispense transaction, restore the stock by deleting the transaction
+  if (targetRecord?.dispenseTxId && userName) {
+    try {
+      const allTxs = getLocalTransactions();
+      const linkedTx = allTxs.find((t) => t.id === targetRecord.dispenseTxId);
+      if (linkedTx) {
+        await deleteTransactionRecord(linkedTx, userName);
+      }
+    } catch (e: any) {
+      console.warn('Could not reverse linked stock transaction:', e);
+    }
+  }
+
+  // 5. Delete from Firestore in background
   runInBackground(async () => {
     const docRef = doc(db, ADBLUE_COLLECTION, id);
     await deleteDoc(docRef);
   });
+};
+
+// Delete all AdBlue refills for a specific vehicle in a given month (YYYY-MM)
+export const deleteAdBlueRefillsForVehicleInMonth = async (
+  licensePlate: string,
+  yearMonth: string,
+  userName?: string
+): Promise<number> => {
+  const cleanPlate = licensePlate.trim().toLowerCase();
+  const records = getLocalAdBlueRefills();
+
+  const toDelete = records.filter((r) => {
+    const m = (r.date || r.createdAt || '').slice(0, 7);
+    if (m !== yearMonth) return false;
+    const p = r.licensePlate.trim().toLowerCase();
+    return p === cleanPlate || p.includes(cleanPlate) || cleanPlate.includes(p);
+  });
+
+  for (const r of toDelete) {
+    await deleteAdBlueRefill(r.id, userName);
+  }
+
+  return toDelete.length;
 };
 
 // Export AdBlue Refills to Excel

@@ -74,13 +74,20 @@ export interface UserProfile {
   lastLoginAt: string;
 }
 
+export const ADMIN_EMAILS = [
+  'chalermpat.korat1499@gmail.com',
+  'chalermpat.cptkorat@gmail.com',
+];
+
 export const ADMIN_EMAIL = 'chalermpat.korat1499@gmail.com';
 
-export const isUserAdmin = (emailOrUser?: string | { email?: string | null } | null): boolean => {
+export const isUserAdmin = (emailOrUser?: string | { email?: string | null; displayName?: string | null } | null): boolean => {
   if (!emailOrUser) return false;
   const email = typeof emailOrUser === 'string' ? emailOrUser : emailOrUser.email;
-  if (!email) return false;
-  return email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const name = typeof emailOrUser === 'object' && emailOrUser ? emailOrUser.displayName : '';
+  if (email && ADMIN_EMAILS.some((e) => e.toLowerCase() === email.trim().toLowerCase())) return true;
+  if (name && (name.includes('เฉลิมพัฒน์') || name.includes('ผู้ดูแลระบบ') || name.includes('Admin'))) return true;
+  return false;
 };
 
 export interface AdBlueRefillRecord {
@@ -97,6 +104,7 @@ export interface AdBlueRefillRecord {
   notes?: string; // หมายเหตุเพิ่มเติม เช่น เติมจากถัง 1,000L หรือ แกลลอน
   deductedFromStock?: boolean; // ตัดสต๊อกจากคลังน้ำยา AdBlue หรือไม่
   oilId?: string; // รหัสสินค้า AdBlue ที่ตัดสต๊อก
+  dispenseTxId?: string; // รหัสธุรกรรมการเบิกตัดสต๊อก
   createdAt: string;
   updatedAt: string;
   updatedBy: string;

@@ -408,6 +408,7 @@ export default function App() {
                 vehicles={vehicles}
                 factories={factories}
                 userName={currentUserName}
+                isAdmin={isAdmin}
               />
             )}
 

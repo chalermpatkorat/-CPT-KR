@@ -311,7 +311,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const handleDeleteAdBlueConfirm = async () => {
     if (!adBlueToDelete) return;
     try {
-      await deleteAdBlueRefill(adBlueToDelete.id);
+      await deleteAdBlueRefill(adBlueToDelete.id, userName);
       setSuccessToast(`ลบประวัติการเติม AdBlue เรียบร้อยแล้ว`);
       setAdBlueToDelete(null);
       setTimeout(() => setSuccessToast(null), 3000);
@@ -1945,6 +1945,11 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
               <p className="text-xs text-slate-500 mt-1">
                 คุณกำลังจะลบรายการเติม AdBlue ของรถ <strong>{adBlueToDelete.licensePlate}</strong> จำนวน <strong>{adBlueToDelete.litersFilled} ลิตร</strong>
               </p>
+              {adBlueToDelete.deductedFromStock && (
+                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 text-left mt-3">
+                  <span>ℹ️ รายการนี้มีการตัดสต๊อก ระบบจะ<strong>คืนยอด {adBlueToDelete.litersFilled} ลิตร กลับเข้าคลังสต๊อกน้ำยา AdBlue</strong> ให้อัตโนมัติ</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-center gap-3 pt-2">

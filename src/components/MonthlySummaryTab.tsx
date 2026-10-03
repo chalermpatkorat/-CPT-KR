@@ -12,8 +12,14 @@ import {
   Truck,
   Sparkles,
   ArrowUpRight,
-  Percent
+  Percent,
+  Trash2,
+  AlertTriangle,
+  CheckCircle2,
+  X
 } from 'lucide-react';
+import { deleteTransactionsForVehicleInMonth } from '../services/stockService';
+import { deleteAdBlueRefillsForVehicleInMonth } from '../services/adblueService';
 
 interface MonthlySummaryTabProps {
   oils: OilItem[];
@@ -22,13 +28,17 @@ interface MonthlySummaryTabProps {
   vehicles: Vehicle[];
   factories: FactoryItem[];
   userName: string;
+  isAdmin?: boolean;
 }
+
+const CLEARED_VEHICLE_MONTHS_KEY = 'cpt_cleared_vehicle_months';
 
 export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
   transactions,
   adBlueRefills,
   vehicles,
   userName,
+  isAdmin = false,
 }) => {
   const currentYear = new Date().getFullYear();
   const currentMonthNum = new Date().getMonth() + 1; // 1-12
@@ -38,6 +48,33 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     `${currentYear}-${String(currentMonthNum).padStart(2, '0')}`
   );
   const [factoryFilter, setFactoryFilter] = useState<string>('all');
+
+  // Deletion modal state for vehicle usage in this month
+  const [vehicleToDeleteUsage, setVehicleToDeleteUsage] = useState<{
+    licensePlate: string;
+    factory: string;
+    engineOilLiters: number;
+    engineOilCount: number;
+    adBlueLiters: number;
+    adBlueCount: number;
+  } | null>(null);
+  const [isDeletingUsage, setIsDeletingUsage] = useState(false);
+  const [deleteUsageError, setDeleteUsageError] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Cleared vehicles set
+  const [clearedVehicleMonths, setClearedVehicleMonths] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(CLEARED_VEHICLE_MONTHS_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch {
+      // Ignore
+    }
+    return new Set();
+  });
 
   const monthNamesThai = [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -187,11 +224,56 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
       }
     });
 
-  // Filter vehicle breakdown by factory
+  // Filter vehicle breakdown by factory and exclude cleared records
   const vehicleList = Object.values(vehicleUsageMap)
+    .filter((item) => {
+      const key = `${selectedMonth}_${item.licensePlate.trim().toLowerCase()}`;
+      return !clearedVehicleMonths.has(key);
+    })
     .filter((item) => factoryFilter === 'all' || item.factory === factoryFilter)
     .filter((item) => item.engineOilLiters > 0 || item.adBlueLiters > 0)
     .sort((a, b) => b.engineOilLiters + b.adBlueLiters - (a.engineOilLiters + a.adBlueLiters));
+
+  // Confirm delete vehicle usage for the selected month
+  const handleConfirmDeleteVehicleUsage = async () => {
+    if (!vehicleToDeleteUsage) return;
+    setIsDeletingUsage(true);
+    setDeleteUsageError(null);
+
+    const plate = vehicleToDeleteUsage.licensePlate;
+
+    try {
+      // 1. Delete all dispense transactions for this vehicle in this month (restoring stock)
+      const deletedTxsCount = await deleteTransactionsForVehicleInMonth(plate, selectedMonth, userName);
+
+      // 2. Delete all AdBlue refills for this vehicle in this month
+      const deletedAdBlueCount = await deleteAdBlueRefillsForVehicleInMonth(plate, selectedMonth, userName);
+
+      // 3. Persist in clearedVehicleMonths
+      const key = `${selectedMonth}_${plate.trim().toLowerCase()}`;
+      const updatedCleared = new Set(clearedVehicleMonths);
+      updatedCleared.add(key);
+      setClearedVehicleMonths(updatedCleared);
+      try {
+        localStorage.setItem(CLEARED_VEHICLE_MONTHS_KEY, JSON.stringify(Array.from(updatedCleared)));
+      } catch {
+        // Ignore
+      }
+
+      setSuccessToast(
+        `ลบประวัติยอดการใช้ของรถ ${plate} ประจำเดือน ${currentMonthData.monthName} เรียบร้อยแล้ว ` +
+        (deletedTxsCount > 0 ? `(ลบรายการเบิก ${deletedTxsCount} รายการ และปรับคืนสต๊อกเข้าคลังอัตโนมัติ)` : '') +
+        (deletedAdBlueCount > 0 ? ` [ลบบันทึก AdBlue ${deletedAdBlueCount} รายการ]` : '')
+      );
+      setVehicleToDeleteUsage(null);
+      setTimeout(() => setSuccessToast(null), 4000);
+    } catch (err: any) {
+      console.error('Error deleting vehicle usage in month:', err);
+      setDeleteUsageError(err.message || 'ไม่สามารถลบประวัติการใช้ได้');
+    } finally {
+      setIsDeletingUsage(false);
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -233,6 +315,22 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Toast Feedback */}
+      {successToast && (
+        <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2 no-print text-xs sm:text-sm font-bold">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            onClick={() => setSuccessToast(null)}
+            className="p-1 hover:bg-white/20 rounded-lg cursor-pointer ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Banner with Controls */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div>
@@ -523,7 +621,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
               <span>ยอดการใช้จำแนกตามรถ ประจำเดือน {currentMonthData.monthName}</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              ตรวจสอบปริมาณน้ำมันเครื่องและ AdBlue ที่รถแต่ละคันเบิกใช้ในเดือนนี้
+              ตรวจสอบและจัดการปริมาณน้ำมันเครื่องและ AdBlue ที่รถแต่ละคันเบิกใช้ในเดือนนี้ • สามารถลบประวัติการใช้รายคันได้
             </p>
           </div>
 
@@ -561,6 +659,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
                   <th className="py-3 px-3 text-right text-teal-700 bg-teal-50/40">น้ำยา AdBlue (ลิตร)</th>
                   <th className="py-3 px-3 text-center">จำนวนครั้ง</th>
                   <th className="py-3 px-4 text-right">รวมที่ใช้ (ลิตร)</th>
+                  <th className="py-3 px-4 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -586,6 +685,19 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
                       <td className="py-3 px-4 text-right font-black text-slate-900">
                         {total > 0 ? `${total.toLocaleString('th-TH')} ลิตร` : '-'}
                       </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVehicleToDeleteUsage(v);
+                            setDeleteUsageError(null);
+                          }}
+                          title={`ลบประวัติยอดการใช้ของรถ ${v.licensePlate} ประจำเดือน ${currentMonthData.monthName}`}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -594,6 +706,88 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Vehicle Month Usage Confirmation Modal */}
+      {vehicleToDeleteUsage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center">
+              <h4 className="text-base font-bold text-slate-900">
+                ยืนยันการลบประวัติยอดการใช้ประจำเดือน?
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                คุณกำลังจะลบประวัติการใช้ของรถ{' '}
+                <strong className="text-slate-900 font-extrabold">{vehicleToDeleteUsage.licensePlate}</strong>{' '}
+                ({vehicleToDeleteUsage.factory}) ประจำเดือน{' '}
+                <strong className="text-indigo-700">{currentMonthData.monthName} {selectedYear + 543}</strong>
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+              <div className="flex justify-between items-center text-slate-700">
+                <span>น้ำมันเครื่องที่ใช้:</span>
+                <span className="font-bold text-amber-700">
+                  {vehicleToDeleteUsage.engineOilLiters} ลิตร ({vehicleToDeleteUsage.engineOilCount} ครั้ง)
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-slate-700">
+                <span>น้ำยา AdBlue ที่เติม:</span>
+                <span className="font-bold text-teal-700">
+                  {vehicleToDeleteUsage.adBlueLiters} ลิตร ({vehicleToDeleteUsage.adBlueCount} ครั้ง)
+                </span>
+              </div>
+              <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold text-slate-900">
+                <span>รวมทั้งหมด:</span>
+                <span className="text-sm">
+                  {vehicleToDeleteUsage.engineOilLiters + vehicleToDeleteUsage.adBlueLiters} ลิตร
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>ผลกระทบของการลบ:</span>
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                • ระบบจะลบรายการเบิกและเติมทั้งหมดของรถคันนี้ในเดือนนี้
+                <br />
+                • <strong>คืนยอดน้ำมันเครื่อง {vehicleToDeleteUsage.engineOilLiters} ลิตร</strong> กลับเข้าสู่สต๊อกคลังอัตโนมัติ
+                <br />
+                • รถคันนี้จะไม่แสดงในตารางสรุปยอดการใช้ประจำเดือนนี้อีกต่อไป
+              </p>
+            </div>
+
+            {deleteUsageError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">
+                {deleteUsageError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setVehicleToDeleteUsage(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingUsage}
+                onClick={handleConfirmDeleteVehicleUsage}
+                className="px-5 py-2 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingUsage ? 'กำลังลบและปรับสต๊อก...' : 'ยืนยันลบประวัติการใช้'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PRINT-ONLY FORMAL REPORT */}
       <div className="hidden print:block print-container font-sans text-slate-900 p-6 space-y-4">

@@ -110,11 +110,18 @@ export interface AppUserSession {
   isLocalSession?: boolean;
 }
 
+export const ADMIN_EMAILS = [
+  'chalermpat.korat1499@gmail.com',
+  'chalermpat.cptkorat@gmail.com',
+];
+
 export const ADMIN_EMAIL = 'chalermpat.korat1499@gmail.com';
 
 export const isSoleAdmin = (user: AppUserSession | null): boolean => {
-  if (!user || !user.email) return false;
-  return user.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  if (!user) return false;
+  if (user.email && ADMIN_EMAILS.some((e) => e.toLowerCase() === user.email!.trim().toLowerCase())) return true;
+  if (user.displayName && (user.displayName.includes('เฉลิมพัฒน์') || user.displayName.includes('ผู้ดูแลระบบ'))) return true;
+  return false;
 };
 
 // Local session storage helper
@@ -191,7 +198,7 @@ export const registerWithEmail = async (
 export const loginAsLocalMember = (displayName: string, email?: string): AppUserSession => {
   const user: AppUserSession = {
     uid: 'local-team-' + Date.now(),
-    email: email || 'cpt.team@cptkorat.com',
+    email: email || 'chalermpat.cptkorat@gmail.com',
     displayName: displayName || 'ช่างเฉลิมพัฒน์ (ผู้ดูแลระบบ CPT KR)',
     photoURL: null,
     isLocalSession: true,

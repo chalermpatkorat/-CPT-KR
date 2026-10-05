@@ -616,7 +616,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
           </h2>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
             {subView === 'vehicles'
-              ? 'คำนวณรอบเปลี่ยนถ่ายถัดไปโดยบวกเพิ่ม 20,000 กม. จากไมล์ปัจจุบัน พร้อมแจ้งเตือนล่วงหน้า 1 เดือน'
+              ? 'คำนวณรอบเปลี่ยนถ่ายถัดไปโดยบวกเพิ่ม 20,000 กม. จากไมล์ที่เปลี่ยนถ่ายล่าสุด พร้อมแจ้งเตือนล่วงหน้า 1 เดือน'
               : 'บันทึกและตรวจสอบประวัติการเติมน้ำยา AdBlue (%ก่อนเติม, %หลังเติม, จำนวนลิตร, ผู้เติม) รายคัน'}
           </p>
         </div>
@@ -1618,17 +1618,39 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-indigo-800">
-                  <Clock className="w-4 h-4 text-indigo-600" />
-                  <span>กำหนดรอบเปลี่ยนถ่ายถัดไป = เลขไมล์ปัจจุบัน + 20,000 กม.</span>
-                </div>
-                <p className="text-[11px] text-indigo-800">
-                  {formCurrentMileage && !isNaN(parseFloat(formCurrentMileage)) && parseFloat(formCurrentMileage) > 0
-                    ? `เป้าหมายรอบถัดไปคือ: ${(parseFloat(formCurrentMileage) + 20000).toLocaleString('th-TH')} กม. (บวกเพิ่ม 20,000 กม. จากไมล์ปัจจุบัน)`
-                    : 'ระบบจะนำเลขไมล์ปัจจุบันที่กรอก ไปบวกเพิ่ม 20,000 กม. เพื่อกำหนดเป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ'}
-                </p>
-              </div>
+              {/* Target Oil Change Cycle Calculation Card */}
+              {(() => {
+                const currentKm = parseFloat(formCurrentMileage) || 0;
+                const lastKm = parseFloat(formLastOilChangeMileage);
+                const hasLastKm = !isNaN(lastKm) && lastKm > 0;
+                const baseMileage = hasLastKm ? lastKm : currentKm;
+                const targetMileage = baseMileage > 0 ? baseMileage + 20000 : 0;
+
+                return (
+                  <div className="p-3.5 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 space-y-1.5">
+                    <div className="flex items-center gap-1.5 font-bold text-indigo-800">
+                      <Clock className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                      <span>
+                        กำหนดรอบเปลี่ยนถ่ายถัดไป = {hasLastKm ? 'เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.)' : 'เลขไมล์ปัจจุบัน (กม.)'} + 20,000 กม.
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-indigo-900 leading-relaxed">
+                      {targetMileage > 0 ? (
+                        <>
+                          เป้าหมายรอบถัดไปคือ:{' '}
+                          <strong className="text-indigo-950 font-black text-xs underline">
+                            {targetMileage.toLocaleString('th-TH')} กม.
+                          </strong>{' '}
+                          (คำนวณจาก {baseMileage.toLocaleString('th-TH')} + 20,000 กม.{' '}
+                          {hasLastKm ? 'จากเลขไมล์ที่เปลี่ยนถ่ายล่าสุด' : 'จากเลขไมล์ปัจจุบัน'})
+                        </>
+                      ) : (
+                        'ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) ไปบวกเพิ่ม 20,000 กม. เพื่อกำหนดเป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ'
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Next Oil Change Due Date Field */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
@@ -1668,7 +1690,15 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   const trips = parseFloat(formTripsPerMonth) || 0;
                   const monthlyKm = dist * trips;
                   const dailyKm = monthlyKm > 0 ? monthlyKm / 30 : 50;
-                  const daysEst = Math.max(1, Math.round(20000 / dailyKm));
+
+                  const currentKm = parseFloat(formCurrentMileage) || 0;
+                  const lastKm = parseFloat(formLastOilChangeMileage);
+                  const hasLastKm = !isNaN(lastKm) && lastKm > 0;
+                  const baseMileage = hasLastKm ? lastKm : currentKm;
+                  const targetMileage = baseMileage + 20000;
+                  const kmRemaining = Math.max(0, targetMileage - currentKm);
+
+                  const daysEst = kmRemaining <= 0 ? 0 : Math.max(1, Math.round(kmRemaining / dailyKm));
                   const autoDate = new Date(Date.now() + daysEst * 86400000);
                   const y = autoDate.getFullYear();
                   const m = String(autoDate.getMonth() + 1).padStart(2, '0');
@@ -1798,7 +1828,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   className="w-full px-3.5 py-2.5 text-base font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
-                  * ระบบจะนำเลขไมล์นี้ไปบวกเพิ่ม 20,000 กม. เป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ (เป้าหมายใหม่ = {(Number(serviceMileage) || 0) > 0 ? (Number(serviceMileage) + 20000).toLocaleString('th-TH') : 'ไมล์ปัจจุบัน + 20,000'} กม.)
+                  * ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายรอบนี้ ไปบวกเพิ่ม 20,000 กม. เป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ (เป้าหมายใหม่ = {(Number(serviceMileage) || 0) > 0 ? (Number(serviceMileage) + 20000).toLocaleString('th-TH') : 'ไมล์ที่เปลี่ยนถ่ายรอบนี้ + 20,000'} กม.)
                 </p>
               </div>
 
@@ -1985,6 +2015,14 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                     {schedulingVehicle.currentMileage.toLocaleString('th-TH')} กม.
                   </span>
                 </div>
+                {schedulingVehicle.lastOilChangeMileage ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-emerald-700 font-semibold">เลขไมล์ที่เปลี่ยนถ่ายล่าสุด:</span>
+                    <span className="font-bold text-emerald-800">
+                      {schedulingVehicle.lastOilChangeMileage.toLocaleString('th-TH')} กม.
+                    </span>
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between pt-1 border-t border-slate-200">
                   <span className="text-indigo-700 font-bold">รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.):</span>
                   <span className="font-black text-indigo-700">

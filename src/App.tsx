@@ -157,7 +157,7 @@ export default function App() {
       unsubFactories();
       unsubAdBlue();
     };
-  }, [user]);
+  }, []);
 
   // Quick navigation helpers
   const handleQuickDispense = (oil: OilItem) => {

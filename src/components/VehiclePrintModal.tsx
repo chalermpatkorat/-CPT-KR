@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Vehicle } from '../types';
-import { calculateVehicleCycle } from '../services/vehicleService';
+import { calculateVehicleCycle, formatThaiDate } from '../services/vehicleService';
 import { X, Printer, Filter, Building2 } from 'lucide-react';
 
 interface VehiclePrintModalProps {
@@ -258,7 +258,12 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                             {vehicle.tripsPerMonth}
                           </td>
                           <td className="p-1.5 text-right border border-slate-300 font-bold">
-                            {vehicle.currentMileage.toLocaleString('th-TH')}
+                            <div>{vehicle.currentMileage.toLocaleString('th-TH')}</div>
+                            {vehicle.lastOilChangeDate && (
+                              <div className="text-[9px] text-emerald-800 font-medium">
+                                ถ่าย: {formatThaiDate(vehicle.lastOilChangeDate)}
+                              </div>
+                            )}
                           </td>
                           <td className="p-1.5 text-right border border-slate-300 font-black text-slate-900">
                             {cycle.nextTargetMileage.toLocaleString('th-TH')}

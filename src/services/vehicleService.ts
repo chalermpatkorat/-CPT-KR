@@ -518,8 +518,27 @@ export const subscribeVehicles = (
           }
         });
 
-        // Merge with locally added vehicles that haven't synced to Firestore yet
+        // Merge with locally modified and added vehicles so stale remote reads don't overwrite newer local edits
         const currentLocal = getLocalVehicles();
+        const localMap = new Map(currentLocal.map((v) => [v.id, v]));
+
+        const mergedFirestore = firestoreItems.map((fItem) => {
+          const localItem = localMap.get(fItem.id);
+          if (!localItem) return fItem;
+          const localTime = new Date(localItem.updatedAt || 0).getTime();
+          const firestoreTime = new Date(fItem.updatedAt || 0).getTime();
+          // If local item is newer or equal, preserve local edit
+          if (localTime >= firestoreTime) {
+            return localItem;
+          }
+          return {
+            ...localItem,
+            ...fItem,
+            lastOilChangeDate: fItem.lastOilChangeDate || localItem.lastOilChangeDate,
+            lastOilChangeMileage: fItem.lastOilChangeMileage || localItem.lastOilChangeMileage,
+          };
+        });
+
         const firestoreIds = new Set(firestoreItems.map((v) => v.id));
         const unsyncedLocal = currentLocal.filter(
           (v) => !firestoreIds.has(v.id) && !deletedSet.has(v.id)
@@ -532,7 +551,7 @@ export const subscribeVehicles = (
           });
         }
 
-        const combined = [...firestoreItems, ...unsyncedLocal];
+        const combined = [...mergedFirestore, ...unsyncedLocal];
         saveLocalVehicles(combined);
       },
       (error) => {
@@ -608,7 +627,7 @@ export const addVehicle = async (
   };
 
   const localItems = [newVehicle, ...getLocalVehicles()];
-  notifyVehicleListeners(localItems);
+  saveLocalVehicles(localItems);
 
   runInBackground(async () => {
     const newRef = doc(collection(db, VEHICLES_COLLECTION), newId);
@@ -628,7 +647,7 @@ export const updateVehicle = async (
   const localItems = getLocalVehicles().map((v) =>
     v.id === vehicleId ? { ...v, ...updates, updatedAt: now, updatedBy: userName } : v
   );
-  notifyVehicleListeners(localItems);
+  saveLocalVehicles(localItems);
 
   runInBackground(async () => {
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
@@ -649,7 +668,7 @@ export const deleteVehicle = async (vehicleId: string): Promise<void> => {
   markVehicleIdDeleted(vehicleId);
 
   const localItems = getLocalVehicles().filter((v) => v.id !== vehicleId);
-  notifyVehicleListeners(localItems);
+  saveLocalVehicles(localItems);
 
   runInBackground(async () => {
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
@@ -665,19 +684,25 @@ export const recordOilChange = async (
   userName: string
 ): Promise<void> => {
   const now = new Date().toISOString();
+  const safeDate =
+    changeDate && /^\d{4}-\d{2}-\d{2}$/.test(changeDate)
+      ? changeDate
+      : now.slice(0, 10);
+
   const localItems = getLocalVehicles().map((v) =>
     v.id === vehicleId
       ? {
           ...v,
           lastOilChangeMileage: newMileage,
           currentMileage: newMileage,
-          lastOilChangeDate: changeDate,
+          lastOilChangeDate: safeDate,
+          nextOilChangeDueDate: undefined, // Clear previous manual schedule on completion
           updatedAt: now,
           updatedBy: userName,
         }
       : v
   );
-  notifyVehicleListeners(localItems);
+  saveLocalVehicles(localItems);
 
   runInBackground(async () => {
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
@@ -686,7 +711,8 @@ export const recordOilChange = async (
       cleanForFirestore({
         lastOilChangeMileage: newMileage,
         currentMileage: newMileage,
-        lastOilChangeDate: changeDate,
+        lastOilChangeDate: safeDate,
+        nextOilChangeDueDate: null,
         updatedAt: now,
         updatedBy: userName,
       }),
@@ -712,7 +738,7 @@ export const scheduleVehicleDueDate = async (
         }
       : v
   );
-  notifyVehicleListeners(localItems);
+  saveLocalVehicles(localItems);
 
   runInBackground(async () => {
     const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);

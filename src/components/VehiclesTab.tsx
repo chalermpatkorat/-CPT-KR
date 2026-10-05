@@ -58,6 +58,14 @@ interface VehiclesTabProps {
   onDispenseForVehicle: (licensePlate: string, currentMileage: number, vehicleId: string) => void;
 }
 
+const getTodayLocalDateStr = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   vehicles,
   factories = [],
@@ -102,6 +110,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const [formDistancePerTrip, setFormDistancePerTrip] = useState('100');
   const [formTripsPerMonth, setFormTripsPerMonth] = useState('30');
   const [formCurrentMileage, setFormCurrentMileage] = useState('100000');
+  const [formLastOilChangeDate, setFormLastOilChangeDate] = useState('');
+  const [formLastOilChangeMileage, setFormLastOilChangeMileage] = useState('');
   const [formDueDate, setFormDueDate] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -117,11 +127,22 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   // Quick Service Modal (เปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่)
   const [serviceVehicle, setServiceVehicle] = useState<Vehicle | null>(null);
   const [serviceMileage, setServiceMileage] = useState('');
-  const [serviceDate, setServiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [serviceDate, setServiceDate] = useState(() => getTodayLocalDateStr());
   const [serviceDeductStock, setServiceDeductStock] = useState<boolean>(true);
   const [serviceOilId, setServiceOilId] = useState<string>('');
   const [serviceAmountLiters, setServiceAmountLiters] = useState<string>('4');
   const [serviceSubmitting, setServiceSubmitting] = useState<boolean>(false);
+
+  // Open Service Modal with proper date initialization (preserves previously recorded date or defaults to today)
+  const handleOpenServiceModal = (vehicle: Vehicle) => {
+    setServiceVehicle(vehicle);
+    setServiceMileage(vehicle.currentMileage.toString());
+    const initialDate =
+      vehicle.lastOilChangeDate && /^\d{4}-\d{2}-\d{2}$/.test(vehicle.lastOilChangeDate)
+        ? vehicle.lastOilChangeDate
+        : getTodayLocalDateStr();
+    setServiceDate(initialDate);
+  };
 
   // Filter available engine oils for service modal
   const engineOils = oils.filter(
@@ -267,6 +288,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     setFormDistancePerTrip('120');
     setFormTripsPerMonth('30');
     setFormCurrentMileage('');
+    setFormLastOilChangeMileage('');
+    setFormLastOilChangeDate(getTodayLocalDateStr());
     setFormDueDate('');
     setFormNotes('');
     setFormError(null);
@@ -281,6 +304,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     setFormDistancePerTrip(v.distancePerTrip.toString());
     setFormTripsPerMonth(v.tripsPerMonth.toString());
     setFormCurrentMileage(v.currentMileage.toString());
+    setFormLastOilChangeMileage(v.lastOilChangeMileage ? v.lastOilChangeMileage.toString() : v.currentMileage.toString());
+    setFormLastOilChangeDate(v.lastOilChangeDate || '');
     setFormDueDate(v.nextOilChangeDueDate || '');
     setFormNotes(v.notes || '');
     setFormError(null);
@@ -343,6 +368,12 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     setFormError(null);
 
     try {
+      const parsedLastMileage = parseFloat(formLastOilChangeMileage);
+      const safeLastMileage = !isNaN(parsedLastMileage) && parsedLastMileage >= 0 ? parsedLastMileage : currentKm;
+      const safeLastDate = formLastOilChangeDate && /^\d{4}-\d{2}-\d{2}$/.test(formLastOilChangeDate)
+        ? formLastOilChangeDate
+        : getTodayLocalDateStr();
+
       if (editingVehicle) {
         await updateVehicle(
           editingVehicle.id,
@@ -353,6 +384,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             distancePerTrip: dist,
             tripsPerMonth: trips,
             currentMileage: currentKm,
+            lastOilChangeMileage: safeLastMileage,
+            lastOilChangeDate: safeLastDate,
             nextOilChangeDueDate: formDueDate ? formDueDate : undefined,
             notes: formNotes.trim(),
           },
@@ -368,8 +401,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             distancePerTrip: dist,
             tripsPerMonth: trips,
             currentMileage: currentKm,
-            lastOilChangeMileage: currentKm,
-            lastOilChangeDate: new Date().toISOString().slice(0, 10),
+            lastOilChangeMileage: safeLastMileage,
+            lastOilChangeDate: safeLastDate,
             oilChangeIntervalKm: 20000,
             nextOilChangeDueDate: formDueDate ? formDueDate : undefined,
             notes: formNotes.trim(),
@@ -430,27 +463,38 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
       return;
     }
 
+    const dateToSave =
+      serviceDate && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)
+        ? serviceDate
+        : (serviceVehicle.lastOilChangeDate || getTodayLocalDateStr());
+
     setServiceSubmitting(true);
     try {
       // 1. Update vehicle oil change cycle
-      await recordOilChange(serviceVehicle.id, km, serviceDate, userName);
+      await recordOilChange(serviceVehicle.id, km, dateToSave, userName);
 
       // 2. Link with stock: If checked, record dispense transaction
       if (serviceDeductStock && targetOil) {
+        let dispenseDateIso = new Date().toISOString();
+        try {
+          const [y, m, d] = dateToSave.split('-').map(Number);
+          dispenseDateIso = new Date(y, m - 1, d, 12, 0, 0).toISOString();
+        } catch {}
+
         await recordDispense({
           oil: targetOil,
           amount: amountNum,
           recipientOrVehicle: `${serviceVehicle.licensePlate} (${serviceVehicle.factory})`,
           currentMileage: km,
-          referenceNote: `[เปลี่ยนถ่ายน้ำมันเครื่องรอบ 20,000 กม.] ไมล์ ${km.toLocaleString('th-TH')} กม.`,
-          date: new Date(serviceDate).toISOString(),
+          referenceNote: `[เปลี่ยนถ่ายน้ำมันเครื่องรอบ 20,000 กม.] ไมล์ ${km.toLocaleString('th-TH')} กม. (วันที่ ${formatThaiDate(dateToSave)})`,
+          date: dispenseDateIso,
           performedBy: userName,
           vehicleId: serviceVehicle.id,
         });
       }
 
       setSuccessToast(
-        `บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรถ ${serviceVehicle.licensePlate} เรียบร้อยแล้ว ` +
+        `บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรถ ${serviceVehicle.licensePlate} วันที่ ${formatThaiDate(dateToSave)} เรียบร้อยแล้ว ` +
         (serviceDeductStock && targetOil ? `(ตัดสต๊อก ${targetOil.name} จำนวน ${amountNum} ลิตร สำเร็จ)` : '')
       );
       setServiceVehicle(null);
@@ -488,6 +532,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         'ระยะทาง/เที่ยว (กม.)': v.distancePerTrip,
         'เที่ยววิ่ง/เดือน': v.tripsPerMonth,
         'เลขไมล์ปัจจุบัน (กม.)': v.currentMileage,
+        'วันที่เปลี่ยนถ่ายล่าสุด': v.lastOilChangeDate ? formatThaiDate(v.lastOilChangeDate) : '-',
+        'ไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.)': v.lastOilChangeMileage || v.currentMileage,
         'รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.)': cycle.nextTargetMileage,
         'ระยะที่วิ่งไปแล้วในรอบนี้ (กม.)': cycle.kmSinceLastChange,
         'ระยะคงเหลือก่อนถึงรอบ (กม.)': cycle.kmRemaining,
@@ -955,8 +1001,18 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                             {vehicle.tripsPerMonth}
                           </td>
 
-                          <td className="py-3.5 px-3 text-right font-black text-slate-900 whitespace-nowrap">
-                            {vehicle.currentMileage.toLocaleString('th-TH')} กม.
+                          <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                            <span className="font-black text-slate-900 text-sm">
+                              {vehicle.currentMileage.toLocaleString('th-TH')} กม.
+                            </span>
+                            <span className="block text-[11px] text-emerald-700 font-bold mt-0.5">
+                              ถ่ายล่าสุด: {vehicle.lastOilChangeDate ? formatThaiDate(vehicle.lastOilChangeDate) : '-'}
+                            </span>
+                            {vehicle.lastOilChangeMileage ? (
+                              <span className="block text-[10px] text-slate-400">
+                                (ที่ไมล์ {vehicle.lastOilChangeMileage.toLocaleString('th-TH')} กม.)
+                              </span>
+                            ) : null}
                           </td>
 
                           {/* Next Oil Change Target Mileage */}
@@ -1122,11 +1178,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                                 {/* Record Oil Change Service */}
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setServiceVehicle(vehicle);
-                                    setServiceMileage(vehicle.currentMileage.toString());
-                                    setServiceDate(new Date().toISOString().slice(0, 10));
-                                  }}
+                                  onClick={() => handleOpenServiceModal(vehicle)}
                                   title="บันทึกเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่"
                                   className="p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
                                 >
@@ -1530,6 +1582,42 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 />
               </div>
 
+              {/* Last Oil Change Date and Mileage */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
+                <div>
+                  <label className="block text-xs font-bold text-emerald-900 mb-1">
+                    วันที่เปลี่ยนถ่ายล่าสุด
+                  </label>
+                  <input
+                    type="date"
+                    value={formLastOilChangeDate}
+                    onChange={(e) => setFormLastOilChangeDate(e.target.value)}
+                    className="w-full px-3 py-2 text-sm font-semibold border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-slate-900"
+                  />
+                  {formLastOilChangeDate && (
+                    <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">
+                      {formatThaiDate(formLastOilChangeDate)}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-emerald-900 mb-1">
+                    เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formLastOilChangeMileage}
+                    onChange={(e) => setFormLastOilChangeMileage(e.target.value)}
+                    placeholder="เช่น 100000"
+                    className="w-full px-3 py-2 text-sm font-semibold border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-slate-900"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    * ไมล์ตั้งต้นสำหรับนับรอบ +20,000 กม.
+                  </span>
+                </div>
+              </div>
+
               <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-indigo-800">
                   <Clock className="w-4 h-4 text-indigo-600" />
@@ -1674,8 +1762,27 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   {serviceVehicle.licensePlate}
                 </span>
                 <span className="block text-slate-500 mt-0.5">
-                  โรงงาน: <strong>{serviceVehicle.factory}</strong> • สาย: {serviceVehicle.route}
+                  โรงงาน: <strong>{serviceVehicle.factory}</strong> • สาย: {serviceVehicle.route || '-'}
                 </span>
+              </div>
+
+              {/* Current / Previous Oil Change History Card */}
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-xl text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-emerald-800 font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    ประวัติถ่ายน้ำมันเครื่องล่าสุด:
+                  </span>
+                  <span className="font-extrabold text-emerald-950 text-xs px-2 py-0.5 bg-emerald-100/90 rounded-md">
+                    {serviceVehicle.lastOilChangeDate ? formatThaiDate(serviceVehicle.lastOilChangeDate) : 'ยังไม่มีประวัติ'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-emerald-800">
+                  <span>เลขไมล์ที่เปลี่ยนถ่ายรอบล่าสุด:</span>
+                  <span className="font-bold text-slate-800">
+                    {serviceVehicle.lastOilChangeMileage ? `${serviceVehicle.lastOilChangeMileage.toLocaleString('th-TH')} กม.` : '-'}
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -1696,16 +1803,61 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  วันที่เปลี่ยนถ่าย <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    วันที่เปลี่ยนถ่าย <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {serviceVehicle.lastOilChangeDate && (
+                      <button
+                        type="button"
+                        onClick={() => setServiceDate(serviceVehicle.lastOilChangeDate)}
+                        className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[11px] font-semibold transition cursor-pointer"
+                        title="ใช้วันที่เปลี่ยนถ่ายล่าสุดของรถคันนี้"
+                      >
+                        วันเดิม
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setServiceDate(getTodayLocalDateStr())}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-600 rounded text-[11px] font-semibold transition cursor-pointer"
+                    >
+                      วันนี้
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() - 1);
+                        const y = d.getFullYear();
+                        const m = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        setServiceDate(`${y}-${m}-${day}`);
+                      }}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-600 rounded text-[11px] font-semibold transition cursor-pointer"
+                    >
+                      เมื่อวาน
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="date"
                   required
                   value={serviceDate}
                   onChange={(e) => setServiceDate(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                  className="w-full px-3.5 py-2 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-slate-900"
                 />
+                {serviceDate ? (
+                  <p className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
+                    <span>🗓️ บันทึกเป็นวันที่:</span>
+                    <strong className="underline">{formatThaiDate(serviceDate)}</strong>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-600 font-semibold mt-1">
+                    * กรุณาระบุวันที่เปลี่ยนถ่ายจริง
+                  </p>
+                )}
               </div>
 
               {/* Option to automatically deduct from stock and link with stock dispensing */}

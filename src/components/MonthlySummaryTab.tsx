@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { deleteTransactionsForVehicleInMonth } from '../services/stockService';
 import { deleteAdBlueRefillsForVehicleInMonth } from '../services/adblueService';
+import { MonthlyPrintModal } from './MonthlyPrintModal';
 
 interface MonthlySummaryTabProps {
   oils: OilItem[];
@@ -48,6 +49,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     `${currentYear}-${String(currentMonthNum).padStart(2, '0')}`
   );
   const [factoryFilter, setFactoryFilter] = useState<string>('all');
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // Deletion modal state for vehicle usage in this month
   const [vehicleToDeleteUsage, setVehicleToDeleteUsage] = useState<{
@@ -299,7 +301,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    setIsPrintModalOpen(true);
   };
 
   const handleExportExcel = () => {
@@ -876,6 +878,20 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Monthly Print Modal */}
+      <MonthlyPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        selectedYear={selectedYear}
+        selectedMonthName={currentMonthData.monthName}
+        monthsData={monthsData}
+        currentMonthVehicles={vehicleList}
+        annualEngineOilLiters={annualEngineOilLiters}
+        annualAdBlueLiters={annualAdBlueLiters}
+        annualTotalLiters={annualTotalLiters}
+        userName={userName}
+      />
     </div>
   );
 };

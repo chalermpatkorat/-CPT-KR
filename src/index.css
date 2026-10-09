@@ -8,7 +8,6 @@
 
 @media print {
   @page {
-    size: landscape;
     margin: 8mm 8mm 8mm 8mm;
   }
   body {
@@ -27,6 +26,8 @@
     margin: 0 !important;
     box-shadow: none !important;
     border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
   .print-table {
     width: 100% !important;
@@ -44,5 +45,13 @@
   .print-avoid-break {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+  .break-before-page {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+  .break-after-page {
+    break-after: page !important;
+    page-break-after: always !important;
   }
 }

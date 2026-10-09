@@ -15,8 +15,10 @@ import {
   AlertTriangle,
   X,
   CheckCircle2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer
 } from 'lucide-react';
+import { HistoryPrintModal } from './HistoryPrintModal';
 
 interface HistoryTabProps {
   transactions: StockTransaction[];
@@ -51,6 +53,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
   // Success Feedback
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+
+  // Print Modal
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // Filtered transactions
   const filteredTxs = transactions.filter((tx) => {
@@ -181,14 +186,25 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleExportExcel}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>ดาวน์โหลดประวัติเป็น Excel (.xlsx)</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsPrintModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+          >
+            <Printer className="w-4 h-4 text-amber-400" />
+            <span>สั่งพิมพ์ประวัติ (Print)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>ส่งออก Excel (.xlsx)</span>
+          </button>
+        </div>
       </div>
 
       {feedbackMsg && (
@@ -572,6 +588,15 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* History Print Modal */}
+      <HistoryPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        transactions={transactions}
+        oils={oils}
+        userName={userName}
+      />
     </div>
   );
 };

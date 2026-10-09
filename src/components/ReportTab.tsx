@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { OilItem, StockTransaction } from '../types';
 import { exportStockReportToExcel } from '../services/excelService';
+import { StockPrintModal } from './StockPrintModal';
 import {
   Printer,
   FileSpreadsheet,
@@ -36,6 +37,8 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     })
   );
 
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
   const totalStockLiters = oils.reduce((sum, o) => sum + (o.currentStock || 0), 0);
   const totalUsedLiters = oils.reduce((sum, o) => sum + (o.totalUsed || 0), 0);
   const totalReceivedLiters = oils.reduce((sum, o) => sum + (o.totalReceived || 0), 0);
@@ -43,7 +46,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
   const lowStockCount = oils.filter((o) => o.currentStock > 0 && o.currentStock <= o.minStockThreshold).length;
 
   const handlePrint = () => {
-    window.print();
+    setIsPrintModalOpen(true);
   };
 
   const handleExportExcel = () => {
@@ -287,6 +290,14 @@ export const ReportTab: React.FC<ReportTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Stock Print Modal */}
+      <StockPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        oils={oils}
+        userName={userName}
+      />
     </div>
   );
 };

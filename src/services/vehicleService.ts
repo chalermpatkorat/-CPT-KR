@@ -381,6 +381,7 @@ export interface VehicleCycleCalc {
   dueDateString: string;
   formattedDueDate: string;
   isManualDueDate: boolean;
+  isFromLastOilChangeMileage: boolean;
   status: 'normal' | 'due_soon' | 'overdue';
   statusText: string;
 }
@@ -389,13 +390,18 @@ export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
   const interval = vehicle.oilChangeIntervalKm || 20000;
   const currentKm = Number(vehicle.currentMileage) || 0;
 
-  // Base mileage = starting odometer for this cycle
-  const baseMileage =
-    vehicle.lastOilChangeMileage && Number(vehicle.lastOilChangeMileage) > 0
-      ? Number(vehicle.lastOilChangeMileage)
-      : currentKm;
+  // กำหนดรอบเปลี่ยนถ่ายถัดไป = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม. (กรณีไม่มีบันทึกรอบแรกจะใช้ไมล์ปัจจุบันเป็นฐาน)
+  const hasLastOilChangeMileage =
+    vehicle.lastOilChangeMileage !== undefined &&
+    vehicle.lastOilChangeMileage !== null &&
+    !isNaN(Number(vehicle.lastOilChangeMileage)) &&
+    Number(vehicle.lastOilChangeMileage) > 0;
 
-  // Target odometer = base mileage + 20,000 km
+  const baseMileage = hasLastOilChangeMileage
+    ? Number(vehicle.lastOilChangeMileage)
+    : currentKm;
+
+  // Target odometer = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม.
   const nextTargetMileage = baseMileage + interval;
 
   // Driven since last change
@@ -479,6 +485,7 @@ export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
     dueDateString,
     formattedDueDate,
     isManualDueDate,
+    isFromLastOilChangeMileage: Boolean(hasLastOilChangeMileage),
     status,
     statusText,
   };

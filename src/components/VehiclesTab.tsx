@@ -936,7 +936,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                       <th className="py-3.5 px-3 text-right">ระยะทาง/เที่ยว</th>
                       <th className="py-3.5 px-3 text-center">เที่ยว/ด.</th>
                       <th className="py-3.5 px-3 text-right">เลขไมล์ปัจจุบัน</th>
-                      <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.)</th>
+                      <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป (ไมล์ถ่ายล่าสุด + 20,000 กม.)</th>
                       <th className="py-3.5 px-3 text-center">วันที่ต้องเรียกรถเข้าถ่าย</th>
                       <th className="py-3.5 px-3 text-center">สถานะรอบเปลี่ยนถ่าย</th>
                       <th className="py-3.5 px-4 text-center">การจัดการ</th>
@@ -1030,6 +1030,11 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                               </span>
                               <span className="block text-[10px] text-slate-400">
                                 วิ่งแล้ว {cycle.kmSinceLastChange.toLocaleString('th-TH')} กม. ({percentUsed}%)
+                                {vehicle.lastOilChangeMileage ? (
+                                  <span className="block text-[9.5px] text-indigo-600 font-medium">
+                                    ฐานนับรอบ: {vehicle.lastOilChangeMileage.toLocaleString('th-TH')} กม.
+                                  </span>
+                                ) : null}
                               </span>
                               <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 ml-auto overflow-hidden">
                                 <div
@@ -1631,7 +1636,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                     <div className="flex items-center gap-1.5 font-bold text-indigo-800">
                       <Clock className="w-4 h-4 text-indigo-600 flex-shrink-0" />
                       <span>
-                        กำหนดรอบเปลี่ยนถ่ายถัดไป = {hasLastKm ? 'เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.)' : 'เลขไมล์ปัจจุบัน (กม.)'} + 20,000 กม.
+                        กำหนดรอบเปลี่ยนถ่ายถัดไป = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม.
                       </span>
                     </div>
                     <p className="text-[11px] text-indigo-900 leading-relaxed">
@@ -1641,8 +1646,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                           <strong className="text-indigo-950 font-black text-xs underline">
                             {targetMileage.toLocaleString('th-TH')} กม.
                           </strong>{' '}
-                          (คำนวณจาก {baseMileage.toLocaleString('th-TH')} + 20,000 กม.{' '}
-                          {hasLastKm ? 'จากเลขไมล์ที่เปลี่ยนถ่ายล่าสุด' : 'จากเลขไมล์ปัจจุบัน'})
+                          (คำนวณจาก: เลขไมล์ที่เปลี่ยนถ่ายล่าสุด {baseMileage.toLocaleString('th-TH')} กม. + 20,000 กม.{' '}
+                          {hasLastKm ? '✓' : '(กรณีรอบแรกใช้ไมล์ปัจจุบันเป็นฐาน)'})
                         </>
                       ) : (
                         'ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) ไปบวกเพิ่ม 20,000 กม. เพื่อกำหนดเป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ'

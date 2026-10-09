@@ -645,7 +645,7 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
               </label>
               <p className="text-[11px] text-amber-800 pl-6 leading-relaxed">
                 {isFullOilChange && currentMileage && Number(currentMileage) > 0
-                  ? `ระบบจะรีเซ็ตรอบถ่ายและตั้งเป้าหมายรอบถัดไปเป็น ${(Number(currentMileage) + 20000).toLocaleString('th-TH')} กม. ในหน้า "ประวัติถ่ายน้ำมันเครื่อง" อัตโนมัติ`
+                  ? `ระบบจะบันทึกเลขไมล์ที่เปลี่ยนถ่ายล่าสุดเป็น ${Number(currentMileage).toLocaleString('th-TH')} กม. และตั้งเป้าหมายรอบถัดไปเป็น ${(Number(currentMileage) + 20000).toLocaleString('th-TH')} กม. ในหน้า "ประวัติถ่ายน้ำมันเครื่อง" อัตโนมัติ`
                   : 'หากไม่ได้ติ๊ก จะบันทึกเป็นการเติมพร่องระหว่างทาง โดยไม่รีเซ็ตรอบถ่าย 20,000 กม.'}
               </p>
             </div>

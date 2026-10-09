@@ -63,8 +63,8 @@ export const StockPrintModal: React.FC<StockPrintModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in">
-      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in print-modal-overlay print:p-0 print:static print:block">
+      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] print-modal-container print:max-w-none print:max-h-none print:border-none print:shadow-none print:rounded-none print:static print:block">
         {/* Modal Header */}
         <div className="bg-gradient-to-r from-slate-900 via-amber-900 to-slate-900 p-4 sm:p-5 text-white flex items-center justify-between no-print">
           <div className="flex items-center gap-3">
@@ -127,9 +127,9 @@ export const StockPrintModal: React.FC<StockPrintModalProps> = ({
         </PrintControlBar>
 
         {/* Live Preview Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/70 print:p-0 print:bg-white print:overflow-visible">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/70 print:p-0 print:bg-white print:overflow-visible print-modal-scroll">
           <div
-            className={`mx-auto bg-white p-5 sm:p-7 rounded-xl shadow-lg border border-slate-300 font-sans text-slate-900 space-y-4 print-container print:shadow-none print:border-none print:p-0 transition-all ${
+            className={`mx-auto bg-white p-5 sm:p-7 rounded-xl shadow-lg border border-slate-300 font-sans text-slate-900 space-y-4 print-container print:shadow-none print:border-none print:p-0 print:m-0 print:max-w-none print:rounded-none transition-all ${
               orientation === 'landscape' ? 'max-w-5xl' : 'max-w-3xl'
             }`}
           >
@@ -156,7 +156,7 @@ export const StockPrintModal: React.FC<StockPrintModalProps> = ({
                   <div className="flex items-start justify-between">
                     <div>
                       <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-                        บริษัท ซีพีที โคราช จำกัด (CPT KORAT CO., LTD.)
+                        บริษัท เฉลิมภัทรทรานสปอร์ต จำกัด (สาขานครราชสีมา)
                       </h1>
                       <h2 className="text-xs sm:text-sm font-bold text-amber-900 mt-0.5">
                         รายงานสรุปสต๊อกสินค้าคงเหลือ (น้ำมันเครื่อง & น้ำยาแอดบลู)

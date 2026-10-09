@@ -48,6 +48,14 @@ export const applyPrintOrientation = (orientation: PrintOrientation) => {
  */
 export const triggerPrint = (orientation: PrintOrientation = 'landscape') => {
   applyPrintOrientation(orientation);
+
+  document.body.classList.add('is-printing');
+  const cleanup = () => {
+    document.body.classList.remove('is-printing');
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+
   // Slight timeout to ensure style rule is registered by the browser rendering engine
   setTimeout(() => {
     window.print();

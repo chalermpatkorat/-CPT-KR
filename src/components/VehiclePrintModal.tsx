@@ -84,8 +84,8 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
       : vehicles.filter((v) => v.factory === selectedFactory);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in">
-      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in print-modal-overlay print:p-0 print:static print:block">
+      <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] print-modal-container print:max-w-none print:max-h-none print:border-none print:shadow-none print:rounded-none print:static print:block">
         {/* Modal Header (Hidden on print) */}
         <div className="bg-gradient-to-r from-slate-900 via-indigo-900 to-slate-900 p-4 sm:p-5 text-white flex items-center justify-between no-print">
           <div className="flex items-center gap-3">
@@ -187,10 +187,10 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
         </PrintControlBar>
 
         {/* Live Print Preview Area */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/70 print:p-0 print:bg-white print:overflow-visible">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/70 print:p-0 print:bg-white print:overflow-visible print-modal-scroll">
           {/* Container size adapts according to orientation */}
           <div
-            className={`mx-auto bg-white p-5 sm:p-7 rounded-xl shadow-lg border border-slate-300 font-sans text-slate-900 space-y-4 print-container print:shadow-none print:border-none print:p-0 transition-all ${
+            className={`mx-auto bg-white p-5 sm:p-7 rounded-xl shadow-lg border border-slate-300 font-sans text-slate-900 space-y-4 print-container print:shadow-none print:border-none print:p-0 print:m-0 print:max-w-none print:rounded-none transition-all ${
               orientation === 'landscape' ? 'max-w-5xl' : 'max-w-3xl'
             }`}
           >
@@ -218,7 +218,7 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                   <div className="flex items-start justify-between">
                     <div>
                       <h1 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-                        บริษัท ซีพีที โคราช จำกัด (CPT KORAT CO., LTD.)
+                        บริษัท เฉลิมภัทรทรานสปอร์ต จำกัด (สาขานครราชสีมา)
                       </h1>
                       <h2 className="text-xs sm:text-sm font-bold text-indigo-900 mt-0.5">
                         รายงานประวัติถ่ายน้ำมันเครื่องและข้อมูลรถประจำโรงงาน (รอบเปลี่ยนถ่าย 20,000 กม.)
@@ -291,7 +291,10 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                           <th className="p-1 text-center border border-slate-300">เที่ยว/ด.</th>
                           <th className="p-1 text-right border border-slate-300">ไมล์ปัจจุบัน</th>
                           <th className="p-1 text-right border border-slate-300 font-black">
-                            รอบถัดไป (ไมล์ถ่ายล่าสุด + 20,000)
+                            <div>รอบถัดไป</div>
+                            <div className="text-[8.5px] font-normal text-slate-600">
+                              (ไมล์ล่าสุด + 20,000)
+                            </div>
                           </th>
                           <th className="p-1 text-right border border-slate-300">ระยะคงเหลือ</th>
                           <th className="p-1 text-center border border-slate-300 bg-indigo-50/50">

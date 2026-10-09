@@ -814,10 +814,10 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
         </div>
       )}
 
-      {/* PRINT-ONLY FORMAL REPORT */}
-      <div className="hidden print:block print-container font-sans text-slate-900 p-6 space-y-4">
+      {/* FORMAL REPORT TEMPLATE (Managed via MonthlyPrintModal) */}
+      <div className="hidden no-print print-container font-sans text-slate-900 p-6 space-y-4">
         <div className="border-b-2 border-slate-900 pb-3 text-center">
-          <h1 className="text-xl font-black">บริษัท ซีพีที โคราช จำกัด (CPT KORAT CO., LTD.)</h1>
+          <h1 className="text-xl font-black">บริษัท เฉลิมภัทรทรานสปอร์ต จำกัด (สาขานครราชสีมา)</h1>
           <h2 className="text-base font-bold text-slate-800 mt-1">
             รายงานสรุปการใช้น้ำมันเครื่องและน้ำยาบำบัดไอเสีย AdBlue ประจำปี พ.ศ. {selectedYear + 543}
           </h2>

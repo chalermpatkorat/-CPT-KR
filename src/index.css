@@ -10,10 +10,22 @@
   @page {
     margin: 8mm 8mm 8mm 8mm;
   }
+  html,
   body {
-    background-color: white !important;
-    color: black !important;
-    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
+    overflow: visible !important;
+    display: block !important;
+    vertical-align: top !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .no-print {
     display: none !important;
@@ -21,6 +33,75 @@
   .print-only {
     display: block !important;
   }
+
+  /* Reset main app wrappers to prevent centering or vertical gaps */
+  #root,
+  #root > div,
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  /* Reset all modal overlays so content starts at top without flex centering */
+  .print-modal-overlay,
+  .fixed.inset-0 {
+    position: static !important;
+    display: block !important;
+    inset: auto !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform: none !important;
+  }
+
+  /* Reset modal content container */
+  .print-modal-container,
+  .print-modal-card {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    overflow: visible !important;
+  }
+
+  /* Reset scroll container */
+  .print-modal-scroll {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    display: block !important;
+  }
+
+  /* Document container fits paper */
   .print-container {
     padding: 0 !important;
     margin: 0 !important;
@@ -28,28 +109,74 @@
     border: none !important;
     width: 100% !important;
     max-width: 100% !important;
+    display: block !important;
+    background: transparent !important;
   }
+
   .print-table {
     width: 100% !important;
+    max-width: 100% !important;
     border-collapse: collapse !important;
+    table-layout: auto !important;
+    margin: 0 !important;
   }
-  .print-table th, .print-table td {
+
+  .print-table thead {
+    display: table-header-group !important;
+  }
+
+  .print-table tbody {
+    display: table-row-group !important;
+  }
+
+  .print-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  .print-table th,
+  .print-table td {
     border: 1px solid #94a3b8 !important;
-    padding: 4px 6px !important;
+    padding: 3px 5px !important;
+    vertical-align: middle !important;
   }
+
   .print-table th {
     background-color: #f1f5f9 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    font-weight: 700 !important;
   }
-  .print-avoid-break {
+
+  /* Responsive tuning for Portrait vs Landscape */
+  body.print-portrait .print-table {
+    font-size: 8pt !important;
+  }
+
+  body.print-portrait .print-table th,
+  body.print-portrait .print-table td {
+    padding: 2.5px 3.5px !important;
+  }
+
+  body.print-landscape .print-table {
+    font-size: 8.5pt !important;
+  }
+
+  body.print-landscape .print-table th,
+  body.print-landscape .print-table td {
+    padding: 3.5px 5px !important;
+  }
+
+  .print-avoid-break,
+  tr {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+
   .break-before-page {
     break-before: page !important;
     page-break-before: always !important;
   }
+
   .break-after-page {
     break-after: page !important;
     page-break-after: always !important;

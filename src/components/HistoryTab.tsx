@@ -171,7 +171,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       )}
 
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
             <History className="w-6 h-6" />
@@ -222,7 +222,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -291,7 +291,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden no-print">
         {filteredTxs.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
             <History className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -423,7 +423,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
       </div>
 
       {editingTx && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
             <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -534,7 +534,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
       )}
 
       {txToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in no-print">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />

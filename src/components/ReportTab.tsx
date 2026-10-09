@@ -122,10 +122,13 @@ export const ReportTab: React.FC<ReportTabProps> = ({
         </div>
       )}
 
-      {/* Printable Report Container */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 print-container">
-        {/* Formal Report Header for Printing */}
+      {/* Report Container (Screen view; printing handled by StockPrintModal) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 no-print">
+        {/* Report Header */}
         <div className="border-b-2 border-slate-900 pb-5 mb-6 text-center relative">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">
+            บริษัท เฉลิมภัทรทรานสปอร์ต จำกัด (สาขานครราชสีมา)
+          </p>
           <div className="flex items-center justify-center gap-2.5 mb-1.5">
             <Droplets className="w-6 h-6 text-amber-600 inline" />
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">

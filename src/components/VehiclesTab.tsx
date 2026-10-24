@@ -112,6 +112,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
   const [formCurrentMileage, setFormCurrentMileage] = useState('100000');
   const [formLastOilChangeDate, setFormLastOilChangeDate] = useState('');
   const [formLastOilChangeMileage, setFormLastOilChangeMileage] = useState('');
+  const [formCycleType, setFormCycleType] = useState<'distance' | 'month'>('distance');
+  const [formIntervalKm, setFormIntervalKm] = useState<string>('20000');
+  const [formIntervalMonths, setFormIntervalMonths] = useState<string>('6');
   const [formDueDate, setFormDueDate] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -290,6 +293,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     setFormCurrentMileage('');
     setFormLastOilChangeMileage('');
     setFormLastOilChangeDate(getTodayLocalDateStr());
+    setFormCycleType('distance');
+    setFormIntervalKm('20000');
+    setFormIntervalMonths('6');
     setFormDueDate('');
     setFormNotes('');
     setFormError(null);
@@ -306,6 +312,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
     setFormCurrentMileage(v.currentMileage.toString());
     setFormLastOilChangeMileage(v.lastOilChangeMileage ? v.lastOilChangeMileage.toString() : v.currentMileage.toString());
     setFormLastOilChangeDate(v.lastOilChangeDate || '');
+    setFormCycleType(v.cycleType === 'month' ? 'month' : 'distance');
+    setFormIntervalKm((v.oilChangeIntervalKm || 20000).toString());
+    setFormIntervalMonths((v.intervalMonths || 6).toString());
     setFormDueDate(v.nextOilChangeDueDate || '');
     setFormNotes(v.notes || '');
     setFormError(null);
@@ -374,6 +383,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         ? formLastOilChangeDate
         : getTodayLocalDateStr();
 
+      const intervalKmNum = parseFloat(formIntervalKm) || 20000;
+      const intervalMonthsNum = parseInt(formIntervalMonths, 10) || 6;
+
       if (editingVehicle) {
         await updateVehicle(
           editingVehicle.id,
@@ -386,6 +398,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             currentMileage: currentKm,
             lastOilChangeMileage: safeLastMileage,
             lastOilChangeDate: safeLastDate,
+            oilChangeIntervalKm: intervalKmNum,
+            cycleType: formCycleType,
+            intervalMonths: intervalMonthsNum,
             nextOilChangeDueDate: formDueDate ? formDueDate : undefined,
             notes: formNotes.trim(),
           },
@@ -403,7 +418,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
             currentMileage: currentKm,
             lastOilChangeMileage: safeLastMileage,
             lastOilChangeDate: safeLastDate,
-            oilChangeIntervalKm: 20000,
+            oilChangeIntervalKm: intervalKmNum,
+            cycleType: formCycleType,
+            intervalMonths: intervalMonthsNum,
             nextOilChangeDueDate: formDueDate ? formDueDate : undefined,
             notes: formNotes.trim(),
             updatedBy: userName,
@@ -534,12 +551,13 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         'เลขไมล์ปัจจุบัน (กม.)': v.currentMileage,
         'วันที่เปลี่ยนถ่ายล่าสุด': v.lastOilChangeDate ? formatThaiDate(v.lastOilChangeDate) : '-',
         'ไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.)': v.lastOilChangeMileage || v.currentMileage,
-        'รอบเปลี่ยนถ่ายถัดไป (+20,000 กม.)': cycle.nextTargetMileage,
+        'เกณฑ์รอบเปลี่ยนถ่าย': cycle.cycleType === 'month' ? `ตามจำนวนเดือน (${cycle.cycleDescription})` : `ตามระยะทาง (${cycle.cycleDescription})`,
+        'รอบเปลี่ยนถ่ายถัดไป': cycle.cycleType === 'month' ? `${cycle.formattedDueDate} (ประมาณ ${cycle.nextTargetMileage.toLocaleString('th-TH')} กม.)` : `${cycle.nextTargetMileage.toLocaleString('th-TH')} กม.`,
         'ระยะที่วิ่งไปแล้วในรอบนี้ (กม.)': cycle.kmSinceLastChange,
         'ระยะคงเหลือก่อนถึงรอบ (กม.)': cycle.kmRemaining,
         'วันที่ต้องเข้ามาเปลี่ยนถ่าย (วันเรียกรถเข้า)': cycle.formattedDueDate,
         'จำนวนวันที่เหลือ': cycle.status === 'overdue' ? 'เกินกำหนดแล้ว' : `${cycle.estimatedDaysRemaining} วัน`,
-        'รูปแบบวันนัดหมาย': cycle.isManualDueDate ? '📌 กำหนดวันเอง' : '⚡ คำนวณจากเที่ยววิ่ง',
+        'รูปแบบวันนัดหมาย': cycle.isManualDueDate ? '📌 กำหนดวันเอง' : cycle.cycleType === 'month' ? '📅 คำนวณตามรอบเดือน' : '⚡ คำนวณจากเที่ยววิ่ง',
         'สถานะรอบถ่าย': cycle.statusText,
         'หมายเหตุ': v.notes || '',
       };
@@ -936,7 +954,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                       <th className="py-3.5 px-3 text-right">ระยะทาง/เที่ยว</th>
                       <th className="py-3.5 px-3 text-center">เที่ยว/ด.</th>
                       <th className="py-3.5 px-3 text-right">เลขไมล์ปัจจุบัน</th>
-                      <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป (ไมล์ถ่ายล่าสุด + 20,000 กม.)</th>
+                      <th className="py-3.5 px-3 text-center">เกณฑ์รอบเปลี่ยนถ่าย</th>
+                      <th className="py-3.5 px-3 text-right">รอบเปลี่ยนถ่ายถัดไป</th>
                       <th className="py-3.5 px-3 text-center">วันที่ต้องเรียกรถเข้าถ่าย</th>
                       <th className="py-3.5 px-3 text-center">สถานะรอบเปลี่ยนถ่าย</th>
                       <th className="py-3.5 px-4 text-center">การจัดการ</th>
@@ -1015,35 +1034,63 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                             ) : null}
                           </td>
 
-                          {/* Next Oil Change Target Mileage */}
+                          {/* Cycle Type Badge */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                            {cycle.cycleType === 'month' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                รอบ {cycle.intervalMonths} เดือน
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                +{cycle.intervalKm.toLocaleString('th-TH')} กม.
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Next Oil Change Target */}
                           <td className="py-3.5 px-3 text-right whitespace-nowrap">
                             <div className="text-right">
-                              <span className="font-extrabold text-slate-900 text-sm">
-                                {cycle.nextTargetMileage.toLocaleString('th-TH')} กม.
-                              </span>
-                              <span className={`block text-[11px] font-semibold ${
-                                isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-emerald-600'
-                              }`}>
-                                {isOverdue
-                                  ? `เกินรอบ ${Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.`
-                                  : `เหลืออีก ${cycle.kmRemaining.toLocaleString('th-TH')} กม.`}
-                              </span>
-                              <span className="block text-[10px] text-slate-400">
-                                วิ่งแล้ว {cycle.kmSinceLastChange.toLocaleString('th-TH')} กม. ({percentUsed}%)
-                                {vehicle.lastOilChangeMileage ? (
-                                  <span className="block text-[9.5px] text-indigo-600 font-medium">
-                                    ฐานนับรอบ: {vehicle.lastOilChangeMileage.toLocaleString('th-TH')} กม.
+                              {cycle.cycleType === 'month' ? (
+                                <>
+                                  <span className="font-extrabold text-slate-900 text-sm">
+                                    {cycle.formattedDueDate}
                                   </span>
-                                ) : null}
-                              </span>
-                              <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 ml-auto overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    isOverdue ? 'bg-red-500' : isDueSoon ? 'bg-amber-500' : 'bg-emerald-500'
-                                  }`}
-                                  style={{ width: `${percentUsed}%` }}
-                                ></div>
-                              </div>
+                                  <span className={`block text-[11px] font-semibold ${
+                                    isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-purple-700'
+                                  }`}>
+                                    {isOverdue
+                                      ? `เลยกำหนด ${Math.abs(cycle.estimatedDaysRemaining)} วัน`
+                                      : `เหลืออีก ${cycle.estimatedDaysRemaining} วัน`}
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400">
+                                    ไมล์คาดการณ์: ~{cycle.nextTargetMileage.toLocaleString('th-TH')} กม.
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-extrabold text-slate-900 text-sm">
+                                    {cycle.nextTargetMileage.toLocaleString('th-TH')} กม.
+                                  </span>
+                                  <span className={`block text-[11px] font-semibold ${
+                                    isOverdue ? 'text-red-600' : isDueSoon ? 'text-amber-600' : 'text-emerald-600'
+                                  }`}>
+                                    {isOverdue
+                                      ? `เกินรอบ ${Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.`
+                                      : `เหลืออีก ${cycle.kmRemaining.toLocaleString('th-TH')} กม.`}
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400">
+                                    วิ่งแล้ว {cycle.kmSinceLastChange.toLocaleString('th-TH')} กม. ({percentUsed}%)
+                                  </span>
+                                  <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 ml-auto overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${
+                                        isOverdue ? 'bg-red-500' : isDueSoon ? 'bg-amber-500' : 'bg-emerald-500'
+                                      }`}
+                                      style={{ width: `${percentUsed}%` }}
+                                    ></div>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </td>
 
@@ -1623,39 +1670,205 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 </div>
               </div>
 
-              {/* Target Oil Change Cycle Calculation Card */}
-              {(() => {
-                const currentKm = parseFloat(formCurrentMileage) || 0;
-                const lastKm = parseFloat(formLastOilChangeMileage);
-                const hasLastKm = !isNaN(lastKm) && lastKm > 0;
-                const baseMileage = hasLastKm ? lastKm : currentKm;
-                const targetMileage = baseMileage > 0 ? baseMileage + 20000 : 0;
-
-                return (
-                  <div className="p-3.5 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 space-y-1.5">
-                    <div className="flex items-center gap-1.5 font-bold text-indigo-800">
-                      <Clock className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                      <span>
-                        กำหนดรอบเปลี่ยนถ่ายถัดไป = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม.
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-indigo-900 leading-relaxed">
-                      {targetMileage > 0 ? (
-                        <>
-                          เป้าหมายรอบถัดไปคือ:{' '}
-                          <strong className="text-indigo-950 font-black text-xs underline">
-                            {targetMileage.toLocaleString('th-TH')} กม.
-                          </strong>{' '}
-                          (คำนวณจาก: เลขไมล์ที่เปลี่ยนถ่ายล่าสุด {baseMileage.toLocaleString('th-TH')} กม. + 20,000 กม.{' '}
-                          {hasLastKm ? '✓' : '(กรณีรอบแรกใช้ไมล์ปัจจุบันเป็นฐาน)'})
-                        </>
-                      ) : (
-                        'ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) ไปบวกเพิ่ม 20,000 กม. เพื่อกำหนดเป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ'
-                      )}
+              {/* Cycle Criteria Selection: Distance (+20,000 km) vs Month */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-indigo-600" />
+                      <span>เกณฑ์การคำนวณรอบเปลี่ยนถ่ายถัดไป (เลือกแบบใดแบบหนึ่ง) *</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      เลือกได้ว่าจะเซ็ตระบบไว้ที่ระยะทาง (+20,000 กม. แบบเดิม) หรือเซ็ตตามจำนวนเดือน เพื่อให้ระบบคำนวณรอบถัดไป
                     </p>
                   </div>
-                );
-              })()}
+                  <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                    formCycleType === 'month' ? 'bg-purple-100 text-purple-800' : 'bg-indigo-100 text-indigo-800'
+                  }`}>
+                    {formCycleType === 'month' ? '📅 ตามจำนวนเดือน' : '🛣️ ตามระยะทาง'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {/* Option 1: Distance-based */}
+                  <div
+                    onClick={() => setFormCycleType('distance')}
+                    className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                      formCycleType === 'distance'
+                        ? 'border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-500/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        name="cycleType"
+                        checked={formCycleType === 'distance'}
+                        onChange={() => setFormCycleType('distance')}
+                        className="mt-0.5 w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="font-extrabold text-xs text-slate-900 block">
+                          1. คำนวณตามระยะทาง (กม.)
+                        </span>
+                        <span className="text-[11px] text-slate-600 mt-0.5 block">
+                          แบบเดิม (+20,000 กม. หรือตามที่ระบุ)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-indigo-200/60">
+                      <label className="block text-[10.5px] font-bold text-slate-600 mb-1">
+                        ระยะทางรอบเปลี่ยนถ่าย (กิโลเมตร)
+                      </label>
+                      <input
+                        type="number"
+                        min="1000"
+                        step="1000"
+                        value={formIntervalKm}
+                        disabled={formCycleType !== 'distance'}
+                        onChange={(e) => setFormIntervalKm(e.target.value)}
+                        placeholder="20000"
+                        className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                      />
+                      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                        {['10000', '15000', '20000', '25000', '30000'].map((km) => (
+                          <button
+                            key={km}
+                            type="button"
+                            disabled={formCycleType !== 'distance'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFormCycleType('distance');
+                              setFormIntervalKm(km);
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition ${
+                              formIntervalKm === km && formCycleType === 'distance'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            }`}
+                          >
+                            +{Number(km).toLocaleString('th-TH')} กม.
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Option 2: Month-based */}
+                  <div
+                    onClick={() => setFormCycleType('month')}
+                    className={`p-3.5 rounded-xl border-2 transition cursor-pointer flex flex-col justify-between ${
+                      formCycleType === 'month'
+                        ? 'border-purple-600 bg-purple-50/70 shadow-xs ring-1 ring-purple-500/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        name="cycleType"
+                        checked={formCycleType === 'month'}
+                        onChange={() => setFormCycleType('month')}
+                        className="mt-0.5 w-4 h-4 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="font-extrabold text-xs text-slate-900 block">
+                          2. คำนวณตามจำนวนเดือน
+                        </span>
+                        <span className="text-[11px] text-slate-600 mt-0.5 block">
+                          นับจากวันที่เปลี่ยนถ่ายล่าสุด
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-purple-200/60">
+                      <label className="block text-[10.5px] font-bold text-slate-600 mb-1">
+                        จำนวนเดือนต่อรอบ (เดือน)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="36"
+                        step="1"
+                        value={formIntervalMonths}
+                        disabled={formCycleType !== 'month'}
+                        onChange={(e) => setFormIntervalMonths(e.target.value)}
+                        placeholder="6"
+                        className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-300 rounded-lg bg-white outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+                      />
+                      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                        {['1', '3', '6', '12'].map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            disabled={formCycleType !== 'month'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFormCycleType('month');
+                              setFormIntervalMonths(m);
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition ${
+                              formIntervalMonths === m && formCycleType === 'month'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            }`}
+                          >
+                            ทุกๆ {m} เดือน
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Preview of Calculation */}
+                {(() => {
+                  const currentKm = parseFloat(formCurrentMileage) || 0;
+                  const lastKm = parseFloat(formLastOilChangeMileage);
+                  const hasLastKm = !isNaN(lastKm) && lastKm > 0;
+                  const baseMileage = hasLastKm ? lastKm : currentKm;
+                  const intervalKmNum = parseFloat(formIntervalKm) || 20000;
+                  const intervalMonthsNum = parseInt(formIntervalMonths, 10) || 6;
+
+                  if (formCycleType === 'month') {
+                    let baseDate = new Date();
+                    if (formLastOilChangeDate && /^\d{4}-\d{2}-\d{2}$/.test(formLastOilChangeDate)) {
+                      const [y, m, d] = formLastOilChangeDate.split('-').map(Number);
+                      baseDate = new Date(y, m - 1, d);
+                    }
+                    const targetDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + intervalMonthsNum, baseDate.getDate());
+                    const targetStr = formatThaiDate(targetDate);
+                    return (
+                      <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs text-purple-950 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                          <span>
+                            สรุปผลคำนวณตามรอบเดือน: กำหนดเปลี่ยนถ่ายรอบถัดไป{' '}
+                            <strong>{targetStr}</strong> (ครบ {intervalMonthsNum} เดือน นับจาก {formatThaiDate(formLastOilChangeDate || baseDate)})
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    const targetMileage = baseMileage + intervalKmNum;
+                    return (
+                      <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-200 text-xs text-indigo-950 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                          <span>
+                            สรุปผลคำนวณตามระยะทาง: เป้าหมายรอบถัดไปคือ{' '}
+                            <strong className="text-indigo-950 font-black underline">
+                              {targetMileage.toLocaleString('th-TH')} กม.
+                            </strong>{' '}
+                            (เลขไมล์ล่าสุด {baseMileage.toLocaleString('th-TH')} + {intervalKmNum.toLocaleString('th-TH')} กม.)
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
 
               {/* Next Oil Change Due Date Field */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
@@ -1691,25 +1904,51 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 </div>
 
                 {(() => {
-                  const dist = parseFloat(formDistancePerTrip) || 0;
-                  const trips = parseFloat(formTripsPerMonth) || 0;
-                  const monthlyKm = dist * trips;
-                  const dailyKm = monthlyKm > 0 ? monthlyKm / 30 : 50;
+                  let autoDateStr = '';
+                  let formatted = '';
+                  let descText = '';
 
-                  const currentKm = parseFloat(formCurrentMileage) || 0;
-                  const lastKm = parseFloat(formLastOilChangeMileage);
-                  const hasLastKm = !isNaN(lastKm) && lastKm > 0;
-                  const baseMileage = hasLastKm ? lastKm : currentKm;
-                  const targetMileage = baseMileage + 20000;
-                  const kmRemaining = Math.max(0, targetMileage - currentKm);
+                  if (formCycleType === 'month') {
+                    const intervalMonthsNum = parseInt(formIntervalMonths, 10) || 6;
+                    let baseDate = new Date();
+                    if (formLastOilChangeDate && /^\d{4}-\d{2}-\d{2}$/.test(formLastOilChangeDate)) {
+                      const [y, m, d] = formLastOilChangeDate.split('-').map(Number);
+                      baseDate = new Date(y, m - 1, d);
+                    }
+                    const targetDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + intervalMonthsNum, baseDate.getDate());
+                    const y = targetDate.getFullYear();
+                    const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+                    const d = String(targetDate.getDate()).padStart(2, '0');
+                    autoDateStr = `${y}-${m}-${d}`;
+                    formatted = formatThaiDate(targetDate);
+                    const today = new Date();
+                    const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+                    const targetMs = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+                    const daysRemaining = Math.round((targetMs - todayMs) / 86400000);
+                    descText = `คำนวณตามรอบ ${intervalMonthsNum} เดือน: ${formatted} (${daysRemaining <= 0 ? 'ครบกำหนดแล้ว' : `อีก ~${daysRemaining} วัน`})`;
+                  } else {
+                    const dist = parseFloat(formDistancePerTrip) || 0;
+                    const trips = parseFloat(formTripsPerMonth) || 0;
+                    const monthlyKm = dist * trips;
+                    const dailyKm = monthlyKm > 0 ? monthlyKm / 30 : 50;
 
-                  const daysEst = kmRemaining <= 0 ? 0 : Math.max(1, Math.round(kmRemaining / dailyKm));
-                  const autoDate = new Date(Date.now() + daysEst * 86400000);
-                  const y = autoDate.getFullYear();
-                  const m = String(autoDate.getMonth() + 1).padStart(2, '0');
-                  const d = String(autoDate.getDate()).padStart(2, '0');
-                  const autoDateStr = `${y}-${m}-${d}`;
-                  const formatted = formatThaiDate(autoDate);
+                    const currentKm = parseFloat(formCurrentMileage) || 0;
+                    const lastKm = parseFloat(formLastOilChangeMileage);
+                    const hasLastKm = !isNaN(lastKm) && lastKm > 0;
+                    const baseMileage = hasLastKm ? lastKm : currentKm;
+                    const intervalKmNum = parseFloat(formIntervalKm) || 20000;
+                    const targetMileage = baseMileage + intervalKmNum;
+                    const kmRemaining = Math.max(0, targetMileage - currentKm);
+
+                    const daysEst = kmRemaining <= 0 ? 0 : Math.max(1, Math.round(kmRemaining / dailyKm));
+                    const autoDate = new Date(Date.now() + daysEst * 86400000);
+                    const y = autoDate.getFullYear();
+                    const m = String(autoDate.getMonth() + 1).padStart(2, '0');
+                    const d = String(autoDate.getDate()).padStart(2, '0');
+                    autoDateStr = `${y}-${m}-${d}`;
+                    formatted = formatThaiDate(autoDate);
+                    descText = `คำนวณจากเที่ยววิ่ง (+${intervalKmNum.toLocaleString('th-TH')} กม.): ${formatted} (อีก ~${daysEst} วัน)`;
+                  }
 
                   return (
                     <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200/80 flex items-center justify-between gap-2">
@@ -1717,8 +1956,8 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                         <Sparkles className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
                         <span>
                           {formDueDate
-                            ? `นัดหมายไว้: ${formatThaiDate(formDueDate)} (คำนวณจากเที่ยววิ่ง = ${formatted})`
-                            : `คำนวณจากเที่ยววิ่งอัตโนมัติ: ${formatted} (อีก ~${daysEst} วัน)`}
+                            ? `นัดหมายไว้: ${formatThaiDate(formDueDate)} (${descText})`
+                            : descText}
                         </span>
                       </div>
                       {!formDueDate && (
@@ -1735,7 +1974,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 })()}
 
                 <p className="text-[11px] text-slate-400">
-                  * หากระบุวันที่ ผู้ใช้งานและทีมงานจะทราบวันนัดหมายเรียกรถเข้าที่แน่นอน / หากปล่อยว่าง ระบบจะคำนวณวันให้โดยอัตโนมัติ
+                  * หากระบุวันที่ ผู้ใช้งานและทีมงานจะทราบวันนัดหมายเรียกรถเข้าที่แน่นอน / หากปล่อยว่าง ระบบจะคำนวณวันให้โดยอัตโนมัติตามเกณฑ์ที่เลือก
                 </p>
               </div>
 
@@ -1833,7 +2072,9 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                   className="w-full px-3.5 py-2.5 text-base font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
-                  * ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายรอบนี้ ไปบวกเพิ่ม 20,000 กม. เป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ (เป้าหมายใหม่ = {(Number(serviceMileage) || 0) > 0 ? (Number(serviceMileage) + 20000).toLocaleString('th-TH') : 'ไมล์ที่เปลี่ยนถ่ายรอบนี้ + 20,000'} กม.)
+                  {serviceVehicle.cycleType === 'month'
+                    ? `* รถคันนี้ตั้งเกณฑ์รอบไว้ที่: ทุกๆ ${serviceVehicle.intervalMonths || 6} เดือน (ระบบจะนับจากวันที่เปลี่ยนถ่ายรอบนี้ไปอีก ${serviceVehicle.intervalMonths || 6} เดือน)`
+                    : `* ระบบจะนำเลขไมล์ที่เปลี่ยนถ่ายรอบนี้ ไปบวกเพิ่ม ${(serviceVehicle.oilChangeIntervalKm || 20000).toLocaleString('th-TH')} กม. เป็นรอบเป้าหมายเปลี่ยนถ่ายรอบถัดไปอัตโนมัติ (เป้าหมายใหม่ = ${(Number(serviceMileage) || 0) > 0 ? ((Number(serviceMileage) || 0) + (serviceVehicle.oilChangeIntervalKm || 20000)).toLocaleString('th-TH') : 'ไมล์รอบนี้ + ' + (serviceVehicle.oilChangeIntervalKm || 20000).toLocaleString('th-TH')} กม.)`}
                 </p>
               </div>
 

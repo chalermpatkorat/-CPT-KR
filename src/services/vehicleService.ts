@@ -370,6 +370,10 @@ export const formatThaiDate = (date: Date | string | null | undefined): string =
 };
 
 export interface VehicleCycleCalc {
+  cycleType: 'distance' | 'month';
+  intervalKm: number;
+  intervalMonths: number;
+  cycleDescription: string;
   baseMileage: number;
   nextTargetMileage: number;
   kmSinceLastChange: number;
@@ -387,10 +391,12 @@ export interface VehicleCycleCalc {
 }
 
 export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
-  const interval = vehicle.oilChangeIntervalKm || 20000;
+  const cycleType = vehicle.cycleType === 'month' ? 'month' : 'distance';
+  const intervalKm = vehicle.oilChangeIntervalKm || 20000;
+  const intervalMonths = vehicle.intervalMonths || 6;
   const currentKm = Number(vehicle.currentMileage) || 0;
 
-  // กำหนดรอบเปลี่ยนถ่ายถัดไป = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม. (กรณีไม่มีบันทึกรอบแรกจะใช้ไมล์ปัจจุบันเป็นฐาน)
+  // Has previous oil change mileage
   const hasLastOilChangeMileage =
     vehicle.lastOilChangeMileage !== undefined &&
     vehicle.lastOilChangeMileage !== null &&
@@ -401,22 +407,18 @@ export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
     ? Number(vehicle.lastOilChangeMileage)
     : currentKm;
 
-  // Target odometer = เลขไมล์ที่เปลี่ยนถ่ายล่าสุด (กม.) + 20,000 กม.
-  const nextTargetMileage = baseMileage + interval;
-
-  // Driven since last change
   const kmSinceLastChange = Math.max(0, currentKm - baseMileage);
-
-  // Remaining km before reaching nextTargetMileage
-  const kmRemaining = nextTargetMileage - currentKm;
-
   const monthlyKm = (Number(vehicle.distancePerTrip) || 0) * (Number(vehicle.tripsPerMonth) || 0);
   const dailyKm = monthlyKm > 0 ? monthlyKm / 30 : 50;
 
+  let nextTargetMileage = baseMileage + intervalKm;
+  let kmRemaining = nextTargetMileage - currentKm;
   let estimatedDaysRemaining = 999;
   let estimatedDueDate: Date | null = null;
   let isManualDueDate = false;
+  let cycleDescription = `+${intervalKm.toLocaleString('th-TH')} กม.`;
 
+  // Check if manual due date is specified
   if (vehicle.nextOilChangeDueDate) {
     try {
       const parts = vehicle.nextOilChangeDueDate.slice(0, 10).split('-');
@@ -439,26 +441,71 @@ export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
     }
   }
 
-  if (!isManualDueDate) {
-    if (kmRemaining <= 0) {
-      estimatedDaysRemaining = 0;
-      estimatedDueDate = new Date();
-    } else if (dailyKm > 0) {
-      estimatedDaysRemaining = Math.max(1, Math.round(kmRemaining / dailyKm));
+  if (cycleType === 'month') {
+    cycleDescription = `รอบทุกๆ ${intervalMonths} เดือน`;
+
+    if (!isManualDueDate) {
+      // Calculate target date based on last oil change date + intervalMonths
+      let baseDate = new Date();
+      if (vehicle.lastOilChangeDate && /^\d{4}-\d{2}-\d{2}$/.test(vehicle.lastOilChangeDate.slice(0, 10))) {
+        const parts = vehicle.lastOilChangeDate.slice(0, 10).split('-');
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        baseDate = new Date(y, m, d);
+      }
+
+      // Add interval months
+      const targetDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + intervalMonths, baseDate.getDate());
+      estimatedDueDate = targetDate;
+
       const today = new Date();
-      estimatedDueDate = new Date(today.getTime() + estimatedDaysRemaining * 86400000);
+      const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const targetMs = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+      estimatedDaysRemaining = Math.round((targetMs - todayMs) / 86400000);
+    }
+
+    // Projected target mileage based on monthly distance
+    const projectedExtraKm = monthlyKm > 0 ? Math.round(monthlyKm * intervalMonths) : intervalKm;
+    nextTargetMileage = baseMileage + projectedExtraKm;
+    kmRemaining = Math.max(0, nextTargetMileage - currentKm);
+  } else {
+    // Distance-based cycle
+    cycleDescription = `+${intervalKm.toLocaleString('th-TH')} กม.`;
+    nextTargetMileage = baseMileage + intervalKm;
+    kmRemaining = nextTargetMileage - currentKm;
+
+    if (!isManualDueDate) {
+      if (kmRemaining <= 0) {
+        estimatedDaysRemaining = 0;
+        estimatedDueDate = new Date();
+      } else if (dailyKm > 0) {
+        estimatedDaysRemaining = Math.max(1, Math.round(kmRemaining / dailyKm));
+        const today = new Date();
+        estimatedDueDate = new Date(today.getTime() + estimatedDaysRemaining * 86400000);
+      }
     }
   }
 
   let status: 'normal' | 'due_soon' | 'overdue' = 'normal';
   let statusText = 'ปกติ';
 
-  if (kmRemaining <= 0 || estimatedDaysRemaining <= 0) {
-    status = 'overdue';
-    statusText = 'เกินรอบเปลี่ยนถ่ายแล้ว (ต้องเรียกรถเข้าด่วน!)';
-  } else if (kmRemaining <= 2000 || estimatedDaysRemaining <= 30) {
-    status = 'due_soon';
-    statusText = 'ใกล้ถึงรอบ (เตรียมเรียกรถเข้าถ่าย)';
+  if (cycleType === 'month') {
+    if (estimatedDaysRemaining <= 0) {
+      status = 'overdue';
+      statusText = 'เกินกำหนดรอบเดือนแล้ว (ต้องเรียกรถเข้าด่วน!)';
+    } else if (estimatedDaysRemaining <= 30) {
+      status = 'due_soon';
+      statusText = `ใกล้ถึงรอบเดือนแล้ว (เหลืออีก ${estimatedDaysRemaining} วัน)`;
+    }
+  } else {
+    if (kmRemaining <= 0 || estimatedDaysRemaining <= 0) {
+      status = 'overdue';
+      statusText = 'เกินรอบเปลี่ยนถ่ายแล้ว (ต้องเรียกรถเข้าด่วน!)';
+    } else if (kmRemaining <= 2000 || estimatedDaysRemaining <= 30) {
+      status = 'due_soon';
+      statusText = `ใกล้ถึงรอบ (เหลืออีก ${kmRemaining.toLocaleString('th-TH')} กม.)`;
+    }
   }
 
   const formattedDueDate = estimatedDueDate ? formatThaiDate(estimatedDueDate) : '-';
@@ -474,6 +521,10 @@ export const calculateVehicleCycle = (vehicle: Vehicle): VehicleCycleCalc => {
   }
 
   return {
+    cycleType,
+    intervalKm,
+    intervalMonths,
+    cycleDescription,
     baseMileage,
     nextTargetMileage,
     kmSinceLastChange,
@@ -688,44 +739,54 @@ export const recordOilChange = async (
   vehicleId: string,
   newMileage: number,
   changeDate: string,
-  userName: string
+  userName: string,
+  cycleOptions?: { cycleType?: 'distance' | 'month'; intervalMonths?: number; intervalKm?: number }
 ): Promise<void> => {
   const now = new Date().toISOString();
   const safeDate =
-    changeDate && /^\d{4}-\d{2}-\d{2}$/.test(changeDate)
-      ? changeDate
+    changeDate && /^\d{4}-\d{2}-\d{2}$/.test(changeDate.slice(0, 10))
+      ? changeDate.slice(0, 10)
       : now.slice(0, 10);
 
-  const localItems = getLocalVehicles().map((v) =>
-    v.id === vehicleId
-      ? {
-          ...v,
-          lastOilChangeMileage: newMileage,
-          currentMileage: newMileage,
-          lastOilChangeDate: safeDate,
-          nextOilChangeDueDate: undefined, // Clear previous manual schedule on completion
-          updatedAt: now,
-          updatedBy: userName,
-        }
-      : v
-  );
+  const localItems = getLocalVehicles().map((v) => {
+    if (v.id !== vehicleId) return v;
+    const safeKm = newMileage && newMileage > 0 ? newMileage : (v.currentMileage || 0);
+    return {
+      ...v,
+      lastOilChangeMileage: safeKm,
+      currentMileage: Math.max(v.currentMileage || 0, safeKm),
+      lastOilChangeDate: safeDate,
+      nextOilChangeDueDate: undefined, // Clear previous manual schedule on completion
+      ...(cycleOptions?.cycleType ? { cycleType: cycleOptions.cycleType } : {}),
+      ...(cycleOptions?.intervalMonths ? { intervalMonths: cycleOptions.intervalMonths } : {}),
+      ...(cycleOptions?.intervalKm ? { oilChangeIntervalKm: cycleOptions.intervalKm } : {}),
+      updatedAt: now,
+      updatedBy: userName,
+    };
+  });
   saveLocalVehicles(localItems);
 
-  runInBackground(async () => {
-    const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
-    await setDoc(
-      docRef,
-      cleanForFirestore({
-        lastOilChangeMileage: newMileage,
-        currentMileage: newMileage,
-        lastOilChangeDate: safeDate,
-        nextOilChangeDueDate: null,
-        updatedAt: now,
-        updatedBy: userName,
-      }),
-      { merge: true }
-    );
-  });
+  const targetVehicle = localItems.find((v) => v.id === vehicleId);
+  if (targetVehicle) {
+    runInBackground(async () => {
+      const docRef = doc(db, VEHICLES_COLLECTION, vehicleId);
+      await setDoc(
+        docRef,
+        cleanForFirestore({
+          lastOilChangeMileage: targetVehicle.lastOilChangeMileage,
+          currentMileage: targetVehicle.currentMileage,
+          lastOilChangeDate: targetVehicle.lastOilChangeDate,
+          nextOilChangeDueDate: null,
+          cycleType: targetVehicle.cycleType || 'distance',
+          intervalMonths: targetVehicle.intervalMonths || null,
+          oilChangeIntervalKm: targetVehicle.oilChangeIntervalKm || 20000,
+          updatedAt: now,
+          updatedBy: userName,
+        }),
+        { merge: true }
+      );
+    });
+  }
 };
 
 // Quickly set or adjust the next scheduled call-in date for a vehicle

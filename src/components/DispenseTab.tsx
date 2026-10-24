@@ -121,9 +121,31 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
     }
   };
 
-  const selectedVehicleObj = vehicles.find(
-    (v) => v.id === selectedVehicleId || (recipient && v.licensePlate === recipient.trim())
-  );
+  const findMatchingVehicle = (plateOrInput: string, vId?: string): Vehicle | undefined => {
+    if (vId) {
+      const byId = vehicles.find((v) => v.id === vId);
+      if (byId) return byId;
+    }
+    if (!plateOrInput || !plateOrInput.trim()) return undefined;
+    const cleanInput = plateOrInput.replace(/\s+/g, '').toLowerCase();
+
+    // Exact match
+    const exact = vehicles.find((v) => v.licensePlate.trim().toLowerCase() === plateOrInput.trim().toLowerCase());
+    if (exact) return exact;
+
+    // Cleaned match
+    const cleaned = vehicles.find((v) => v.licensePlate.replace(/\s+/g, '').toLowerCase() === cleanInput);
+    if (cleaned) return cleaned;
+
+    // Partial contains match (e.g. user typed "70-1122" and plate is "70-1122 กทม.")
+    const partial = vehicles.find((v) => {
+      const vClean = v.licensePlate.replace(/\s+/g, '').toLowerCase();
+      return vClean.includes(cleanInput) || cleanInput.includes(vClean);
+    });
+    return partial;
+  };
+
+  const selectedVehicleObj = findMatchingVehicle(recipient, selectedVehicleId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,21 +186,24 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
 
     setLoading(true);
     try {
+      const dateIso = new Date(dispenseDate).toISOString();
+      const dateOnly = dispenseDate.slice(0, 10);
+
       // 1. Record Dispense Transaction in Stock System
       await recordDispense({
         oil: selectedOil,
         amount: amountNumber,
         recipientOrVehicle: `${finalPlate} (${finalFactory})`,
-        currentMileage: mileageNum,
+        currentMileage: mileageNum || vehicleToLink?.currentMileage,
         referenceNote: isAdBlueItem
-          ? `เติม AdBlue จาก ${adBluePercentBefore}% เป็น ${adBluePercentAfter}% | ${referenceNote || '-'}`
-          : `${isFullOilChange && vehicleToLink ? '[เปลี่ยนถ่ายรอบใหม่ +20,000 กม.]' : '[เติมพร่อง/เบิกใช้งาน]'} ${referenceNote || ''}`,
-        date: new Date(dispenseDate).toISOString(),
+          ? `[เติมน้ำยา AdBlue ${amountNumber}L] จาก ${adBluePercentBefore}% เป็น ${adBluePercentAfter}% | ${referenceNote || '-'}`
+          : `${isFullOilChange && vehicleToLink ? `[เปลี่ยนถ่ายรอบใหม่ ${vehicleToLink.cycleType === 'month' ? `รอบ ${vehicleToLink.intervalMonths || 6} เดือน` : `+${(vehicleToLink.oilChangeIntervalKm || 20000).toLocaleString('th-TH')} กม.`}]` : '[เติมพร่อง/เบิกใช้งาน]'} ${referenceNote || ''}`,
+        date: dateIso,
         performedBy: userName || 'ผู้ดูแลระบบ',
         vehicleId: vehicleToLink?.id,
       });
 
-      // 2. LINK TO VEHICLE: If AdBlue, automatically create AdBlueRefillRecord
+      // 2. LINK TO ADBLUE: If AdBlue, automatically create AdBlueRefillRecord
       if (isAdBlueItem) {
         await addAdBlueRefill(
           {
@@ -186,14 +211,14 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
               vehicleId: vehicleToLink?.id,
               licensePlate: finalPlate,
               factory: finalFactory,
-              date: new Date(dispenseDate).toISOString(),
+              date: dateIso,
               percentBefore: parseFloat(adBluePercentBefore) || 0,
               percentAfter: parseFloat(adBluePercentAfter) || 100,
               litersFilled: amountNumber,
               filledBy: userName || 'ผู้ดูแลระบบ',
-              currentMileage: mileageNum,
+              currentMileage: mileageNum || vehicleToLink?.currentMileage,
               notes: referenceNote || 'เบิกเติมผ่านหน้าเบิกสินค้า',
-              deductedFromStock: false, // Already deducted above in recordDispense
+              deductedFromStock: false, // Already deducted above in recordDispense to prevent double deduction
               oilId: selectedOil.id,
               updatedBy: userName,
             },
@@ -202,33 +227,43 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
           userName
         );
 
-        // Update vehicle current mileage if provided and higher
+        // Update vehicle current mileage if provided and higher than stored
         if (vehicleToLink && mileageNum && mileageNum > (vehicleToLink.currentMileage || 0)) {
           await updateVehicle(vehicleToLink.id, { currentMileage: mileageNum }, userName);
         }
       }
 
-      // 3. LINK TO VEHICLE: If Engine Oil and user marked as full oil change, update vehicle service cycle
+      // 3. LINK TO VEHICLE OIL CHANGE: If Engine Oil, update vehicle maintenance cycle
       if (!isAdBlueItem && vehicleToLink) {
-        if (isFullOilChange && mileageNum && mileageNum > 0) {
+        // If marked as full oil change cycle:
+        if (isFullOilChange) {
+          const effectiveMileage = mileageNum && mileageNum > 0
+            ? mileageNum
+            : (vehicleToLink.currentMileage || 0);
+
           await recordOilChange(
             vehicleToLink.id,
-            mileageNum,
-            dispenseDate.slice(0, 10),
+            effectiveMileage,
+            dateOnly,
             userName
           );
         } else if (mileageNum && mileageNum > (vehicleToLink.currentMileage || 0)) {
+          // If topping up but entered higher mileage, update current odometer
           await updateVehicle(vehicleToLink.id, { currentMileage: mileageNum }, userName);
         }
       }
 
+      const cycleMsg = vehicleToLink && isFullOilChange
+        ? vehicleToLink.cycleType === 'month'
+          ? `(อัปเดตประวัติถ่ายน้ำมันเครื่อง วันที่ ${dateOnly} และเริ่มนับรอบถัดไปอีก ${vehicleToLink.intervalMonths || 6} เดือน เรียบร้อย)`
+          : `(อัปเดตรอบถ่ายน้ำมันเครื่องเป้าหมายใหม่เป็น ${((mileageNum || vehicleToLink.currentMileage) + (vehicleToLink.oilChangeIntervalKm || 20000)).toLocaleString('th-TH')} กม. เรียบร้อย)`
+        : '';
+
       setSuccessMsg(
         `เบิก ${selectedOil.name} (${selectedOil.viscosity}) จำนวน ${amountNumber} ลิตร ให้รถ ${finalPlate} เรียบร้อยแล้ว! ` +
         (isAdBlueItem
-          ? `(บันทึกลงประวัติเติม AdBlue: ${adBluePercentBefore}% ➔ ${adBluePercentAfter}%)`
-          : vehicleToLink && isFullOilChange
-          ? `(อัปเดตรอบถ่ายน้ำมันเครื่องเป้าหมายใหม่เป็น ${(mileageNum! + 20000).toLocaleString('th-TH')} กม.)`
-          : '')
+          ? `(บันทึกลงประวัติรายงานการเติม AdBlue: จาก ${adBluePercentBefore}% เป็น ${adBluePercentAfter}% ทันที)`
+          : cycleMsg)
       );
 
       // Reset
@@ -640,13 +675,21 @@ export const DispenseTab: React.FC<DispenseTabProps> = ({
                 />
                 <span className="flex items-center gap-1.5">
                   <Wrench className="w-4 h-4 text-amber-700" />
-                  <span>บันทึกเป็นการเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่ (+20,000 กม.) ของรถ {selectedVehicleObj.licensePlate}</span>
+                  <span>
+                    บันทึกเป็นการเปลี่ยนถ่ายน้ำมันเครื่องรอบใหม่ (
+                    {selectedVehicleObj.cycleType === 'month'
+                      ? `เกณฑ์รอบ ${selectedVehicleObj.intervalMonths || 6} เดือน`
+                      : `เกณฑ์ +${(selectedVehicleObj.oilChangeIntervalKm || 20000).toLocaleString('th-TH')} กม.`}
+                    ) ของรถ {selectedVehicleObj.licensePlate}
+                  </span>
                 </span>
               </label>
               <p className="text-[11px] text-amber-800 pl-6 leading-relaxed">
-                {isFullOilChange && currentMileage && Number(currentMileage) > 0
-                  ? `ระบบจะบันทึกเลขไมล์ที่เปลี่ยนถ่ายล่าสุดเป็น ${Number(currentMileage).toLocaleString('th-TH')} กม. และตั้งเป้าหมายรอบถัดไปเป็น ${(Number(currentMileage) + 20000).toLocaleString('th-TH')} กม. ในหน้า "ประวัติถ่ายน้ำมันเครื่อง" อัตโนมัติ`
-                  : 'หากไม่ได้ติ๊ก จะบันทึกเป็นการเติมพร่องระหว่างทาง โดยไม่รีเซ็ตรอบถ่าย 20,000 กม.'}
+                {isFullOilChange
+                  ? selectedVehicleObj.cycleType === 'month'
+                    ? `ระบบจะบันทึกวันที่เปลี่ยนถ่ายล่าสุดเป็น ${dispenseDate.slice(0, 10)} และคำนวณวันรอบถัดไปอีก ${selectedVehicleObj.intervalMonths || 6} เดือน ในหน้า "ประวัติถ่ายน้ำมันเครื่อง" ให้อัตโนมัติ`
+                    : `ระบบจะบันทึกเลขไมล์ที่เปลี่ยนถ่ายล่าสุดเป็น ${(Number(currentMileage) || selectedVehicleObj.currentMileage).toLocaleString('th-TH')} กม. และตั้งเป้าหมายรอบถัดไปเป็น +${(selectedVehicleObj.oilChangeIntervalKm || 20000).toLocaleString('th-TH')} กม. ในหน้า "ประวัติถ่ายน้ำมันเครื่อง" ให้อัตโนมัติ`
+                  : 'หากไม่ได้ติ๊ก จะบันทึกเป็นการเติมพร่องระหว่างทาง โดยไม่รีเซ็ตรอบถ่าย'}
               </p>
             </div>
           ) : null}

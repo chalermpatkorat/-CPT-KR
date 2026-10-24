@@ -48,6 +48,8 @@ export interface FactoryItem {
   updatedBy: string;
 }
 
+export type MaintenanceCycleType = 'distance' | 'month';
+
 export interface Vehicle {
   id: string;
   licensePlate: string; // ทะเบียนรถ เช่น 70-1234 กทม.
@@ -58,7 +60,9 @@ export interface Vehicle {
   currentMileage: number; // เลขไมล์ปัจจุบัน (กม.)
   lastOilChangeMileage: number; // เลขไมล์ที่เปลี่ยนถ่ายน้ำมันเครื่องล่าสุด (กม.)
   lastOilChangeDate: string; // วันที่เปลี่ยนถ่ายล่าสุด (YYYY-MM-DD)
-  oilChangeIntervalKm: number; // รอบการเปลี่ยนถ่าย (20,000 กม.)
+  oilChangeIntervalKm: number; // รอบการเปลี่ยนถ่าย (เช่น 20,000 กม.)
+  cycleType?: MaintenanceCycleType; // 'distance' (ตามระยะทาง) หรือ 'month' (ตามจำนวนเดือน)
+  intervalMonths?: number; // จำนวนเดือน เช่น 3, 6, 12 เดือน (เมื่อ cycleType === 'month')
   nextOilChangeDueDate?: string; // วันที่ต้องเรียกรถเข้ามาเปลี่ยนถ่ายรอบถัดไป (YYYY-MM-DD)
   notes?: string; // หมายเหตุ เช่น ชื่อคนขับ, ยี่ห้อรถ
   updatedAt: string;

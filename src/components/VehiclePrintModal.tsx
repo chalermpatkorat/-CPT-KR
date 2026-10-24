@@ -221,7 +221,7 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                         บริษัท เฉลิมภัทรทรานสปอร์ต จำกัด (สาขานครราชสีมา)
                       </h1>
                       <h2 className="text-xs sm:text-sm font-bold text-indigo-900 mt-0.5">
-                        รายงานประวัติถ่ายน้ำมันเครื่องและข้อมูลรถประจำโรงงาน (รอบเปลี่ยนถ่าย 20,000 กม.)
+                        รายงานประวัติถ่ายน้ำมันเครื่องและข้อมูลรถประจำโรงงาน (รอบเปลี่ยนถ่ายตามระยะทาง / ตามรอบเดือน)
                       </h2>
                       <p className="text-[11px] font-semibold text-slate-700 mt-1">
                         สังกัด: <strong>{selectedFactory === 'all' ? 'ทุกโรงงานในระบบ' : selectedFactory}</strong>
@@ -290,13 +290,11 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                           <th className="p-1 text-right border border-slate-300">กม./เที่ยว</th>
                           <th className="p-1 text-center border border-slate-300">เที่ยว/ด.</th>
                           <th className="p-1 text-right border border-slate-300">ไมล์ปัจจุบัน</th>
+                          <th className="p-1 text-center border border-slate-300">เกณฑ์รอบ</th>
                           <th className="p-1 text-right border border-slate-300 font-black">
                             <div>รอบถัดไป</div>
-                            <div className="text-[8.5px] font-normal text-slate-600">
-                              (ไมล์ล่าสุด + 20,000)
-                            </div>
                           </th>
-                          <th className="p-1 text-right border border-slate-300">ระยะคงเหลือ</th>
+                          <th className="p-1 text-right border border-slate-300">ระยะ/วันคงเหลือ</th>
                           <th className="p-1 text-center border border-slate-300 bg-indigo-50/50">
                             วันเรียกรถเข้า
                           </th>
@@ -349,28 +347,56 @@ export const VehiclePrintModal: React.FC<VehiclePrintModalProps> = ({
                                   </div>
                                 )}
                               </td>
+                              <td className="p-1 text-center border border-slate-300 whitespace-nowrap font-bold text-[9.5px]">
+                                {cycle.cycleType === 'month' ? (
+                                  <span className="text-purple-700">ทุก {cycle.intervalMonths} เดือน</span>
+                                ) : (
+                                  <span className="text-indigo-700">+{cycle.intervalKm.toLocaleString('th-TH')} กม.</span>
+                                )}
+                              </td>
                               <td className="p-1 text-right border border-slate-300 font-black text-slate-900">
-                                <div>{cycle.nextTargetMileage.toLocaleString('th-TH')}</div>
-                                {vehicle.lastOilChangeMileage ? (
-                                  <div className="text-[8.5px] text-slate-500 font-normal">
-                                    (จากไมล์ {vehicle.lastOilChangeMileage.toLocaleString('th-TH')} + 20,000)
+                                {cycle.cycleType === 'month' ? (
+                                  <div>
+                                    <div>{cycle.formattedDueDate}</div>
+                                    <div className="text-[8.5px] text-slate-500 font-normal">
+                                      (~{cycle.nextTargetMileage.toLocaleString('th-TH')} กม.)
+                                    </div>
                                   </div>
-                                ) : null}
+                                ) : (
+                                  <div>
+                                    <div>{cycle.nextTargetMileage.toLocaleString('th-TH')}</div>
+                                    {vehicle.lastOilChangeMileage ? (
+                                      <div className="text-[8.5px] text-slate-500 font-normal">
+                                        (ไมล์ {vehicle.lastOilChangeMileage.toLocaleString('th-TH')} + {cycle.intervalKm.toLocaleString('th-TH')})
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )}
                               </td>
                               <td className="p-1 text-right border border-slate-300 font-semibold whitespace-nowrap">
-                                {isOverdue ? (
-                                  <span className="text-red-700 font-bold">
-                                    -{Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.
-                                  </span>
+                                {cycle.cycleType === 'month' ? (
+                                  isOverdue ? (
+                                    <span className="text-red-700 font-bold">
+                                      เลยกำหนด {Math.abs(cycle.estimatedDaysRemaining)} วัน
+                                    </span>
+                                  ) : (
+                                    <span>เหลือ {cycle.estimatedDaysRemaining} วัน</span>
+                                  )
                                 ) : (
-                                  <span>{cycle.kmRemaining.toLocaleString('th-TH')} กม.</span>
+                                  isOverdue ? (
+                                    <span className="text-red-700 font-bold">
+                                      -{Math.abs(cycle.kmRemaining).toLocaleString('th-TH')} กม.
+                                    </span>
+                                  ) : (
+                                    <span>{cycle.kmRemaining.toLocaleString('th-TH')} กม.</span>
+                                  )
                                 )}
                               </td>
                               <td className="p-1 text-center border border-slate-300 font-extrabold whitespace-nowrap bg-indigo-50/40">
                                 <div>
                                   <span>{cycle.formattedDueDate}</span>
                                   <span className="block text-[8.5px] text-slate-500 font-normal">
-                                    {cycle.isManualDueDate ? '(นัดหมาย)' : '(คำนวณ)'}
+                                    {cycle.isManualDueDate ? '(นัดหมาย)' : cycle.cycleType === 'month' ? '(รอบเดือน)' : '(คำนวณ)'}
                                   </span>
                                 </div>
                               </td>

@@ -331,7 +331,13 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main
+        className={`flex-1 w-full mx-auto py-6 transition-all duration-150 ${
+          activeTab === 'history'
+            ? 'max-w-full px-2 sm:px-4 lg:px-6'
+            : 'max-w-7xl px-4 sm:px-6 lg:px-8'
+        }`}
+      >
         {loadingData ? (
           <div className="py-24 text-center space-y-3">
             <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -426,7 +432,9 @@ export default function App() {
 
       {/* Footer (Hidden on Print) */}
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500 no-print mt-auto">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className={`mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3 ${
+          activeTab === 'history' ? 'max-w-full px-2 sm:px-4 lg:px-6' : 'max-w-7xl'
+        }`}>
           <p>
             ระบบจัดการสต๊อกน้ำมันเครื่อง&น้ำยาแอดบลู CPT KR • หน่วยนับ: ลิตร • ข้อมูลรถและรอบถ่าย 20,000 กม. ({factories.length > 0 ? `${factories.length} โรงงาน` : 'แต่ละโรงงาน'})
           </p>

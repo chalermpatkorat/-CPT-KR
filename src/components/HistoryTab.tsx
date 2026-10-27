@@ -16,7 +16,9 @@ import {
   X,
   CheckCircle2,
   FileSpreadsheet,
-  Printer
+  Printer,
+  Truck,
+  Maximize2
 } from 'lucide-react';
 import { HistoryPrintModal } from './HistoryPrintModal';
 
@@ -71,6 +73,22 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
     return matchesSearch && matchesType && matchesOil;
   });
+
+  const oilMap = React.useMemo(() => {
+    const map = new Map<string, OilItem>();
+    oils.forEach((o) => map.set(o.id, o));
+    return map;
+  }, [oils]);
+
+  // Summary Stats for active filters
+  const totalDispenseCount = filteredTxs.filter((tx) => tx.type === 'dispense').length;
+  const totalReceiveCount = filteredTxs.filter((tx) => tx.type === 'receive').length;
+  const totalDispenseLiters = filteredTxs
+    .filter((tx) => tx.type === 'dispense')
+    .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+  const totalReceiveLiters = filteredTxs
+    .filter((tx) => tx.type === 'receive')
+    .reduce((sum, tx) => sum + (tx.amount || 0), 0);
 
   const handleOpenEdit = (tx: StockTransaction) => {
     setEditingTx(tx);
@@ -171,15 +189,21 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       )}
 
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl shrink-0">
             <History className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900">
-              ประวัติการเบิกจ่ายและรับเข้า
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900">
+                ประวัติการเบิกจ่ายและรับเข้า
+              </h2>
+              <span className="px-2.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-full hidden sm:inline-flex items-center gap-1">
+                <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+                เต็มความกว้างหน้าจอ (Fit Screen)
+              </span>
+            </div>
             <p className="text-xs text-slate-500">
               ตรวจสอบย้อนหลังแบบละเอียด (น้ำมันเครื่อง & น้ำยาแอดบลู) • สามารถแก้ไขหรือลบรายการได้ พร้อมคำนวณปรับสต๊อกให้อัตโนมัติ
             </p>
@@ -222,6 +246,46 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       )}
 
+      {/* Quick Summary Metrics Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 no-print">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase">รายการทั้งหมดตามตัวกรอง</span>
+            <div className="text-lg font-black text-slate-900 mt-0.5">
+              {filteredTxs.length.toLocaleString('th-TH')} <span className="text-xs font-normal text-slate-500">รายการ</span>
+            </div>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-xs">
+            {transactions.length > 0 ? `${Math.round((filteredTxs.length / transactions.length) * 100)}%` : '0%'}
+          </div>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-orange-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-semibold text-orange-700 uppercase">ยอดเบิกจ่ายรวม</span>
+            <div className="text-lg font-black text-orange-600 mt-0.5">
+              -{totalDispenseLiters.toLocaleString('th-TH')} <span className="text-xs font-normal text-slate-500">ลิตร</span>
+            </div>
+          </div>
+          <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs font-bold rounded-lg">
+            {totalDispenseCount} รายการ
+          </span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-semibold text-emerald-700 uppercase">ยอดรับเข้ารวม</span>
+            <div className="text-lg font-black text-emerald-600 mt-0.5">
+              +{totalReceiveLiters.toLocaleString('th-TH')} <span className="text-xs font-normal text-slate-500">ลิตร</span>
+            </div>
+          </div>
+          <span className="px-2 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg">
+            {totalReceiveCount} รายการ
+          </span>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 no-print">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
           <div className="relative flex-1 max-w-md">
@@ -231,7 +295,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาผู้เบิก, ทะเบียนรถ, ชื่อสินค้า, หมายเหตุ..."
-              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none font-medium"
             />
             {searchTerm && (
               <button
@@ -279,7 +343,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           <select
             value={selectedOilFilter}
             onChange={(e) => setSelectedOilFilter(e.target.value)}
-            className="px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-700 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+            className="px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-xl bg-white text-slate-700 outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer font-medium"
           >
             <option value="all">ทุกชนิดสินค้า</option>
             {oils.map((o) => (
@@ -291,6 +355,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       </div>
 
+      {/* Main Full-Width Table Card with Sticky Headers and Self-Contained Scrollbar */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden no-print">
         {filteredTxs.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
@@ -299,125 +364,161 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             <p className="text-xs text-slate-400 mt-0.5">ไม่มีข้อมูลที่ตรงกับตัวกรองที่เลือก</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                  <th className="py-3.5 px-4">วัน-เวลา</th>
-                  <th className="py-3.5 px-3">ประเภท</th>
-                  <th className="py-3.5 px-3">รายการสินค้า</th>
-                  <th className="py-3.5 px-3 text-center">ความหนืด/เกรด</th>
-                  <th className="py-3.5 px-3 text-right">จำนวน</th>
-                  <th className="py-3.5 px-3 text-center">สต๊อกก่อน → หลัง</th>
-                  <th className="py-3.5 px-3">ผู้เบิก / ทะเบียนรถ / ซัพพลายเออร์</th>
-                  <th className="py-3.5 px-3 text-right">เลขไมล์ (กม.)</th>
-                  <th className="py-3.5 px-3">ผู้บันทึก</th>
-                  <th className="py-3.5 px-3">หมายเหตุ</th>
-                  {isAdmin && <th className="py-3.5 px-4 text-center">จัดการ</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredTxs.map((tx) => {
-                  const isDispense = tx.type === 'dispense';
-                  return (
-                    <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4 font-medium text-slate-600 whitespace-nowrap">
-                        {new Date(tx.date).toLocaleString('th-TH', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
+          <div>
+            <div className="overflow-auto max-h-[calc(100vh-270px)] min-h-[380px]">
+              <table className="w-full text-left text-xs table-auto">
+                <thead className="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-700 font-bold shadow-2xs">
+                  <tr>
+                    <th className="py-2.5 px-3 text-center w-[90px] whitespace-nowrap">วัน-เวลา</th>
+                    <th className="py-2.5 px-2 text-center w-[75px] whitespace-nowrap">ประเภท</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap min-w-[150px]">รายการสินค้า</th>
+                    <th className="py-2.5 px-2 text-center w-[75px] whitespace-nowrap">ความหนืด</th>
+                    <th className="py-2.5 px-3 text-right w-[85px] whitespace-nowrap">จำนวน</th>
+                    <th className="py-2.5 px-2.5 text-center w-[115px] whitespace-nowrap">สต๊อกก่อน→หลัง</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">ผู้เบิก / ทะเบียนรถ / ซัพพลายเออร์</th>
+                    <th className="py-2.5 px-2.5 text-right w-[95px] whitespace-nowrap">เลขไมล์ (กม.)</th>
+                    <th className="py-2.5 px-2.5 w-[90px] whitespace-nowrap">ผู้บันทึก</th>
+                    <th className="py-2.5 px-3 min-w-[130px]">หมายเหตุ</th>
+                    {isAdmin && <th className="py-2.5 px-2.5 text-center w-[70px] whitespace-nowrap">จัดการ</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredTxs.map((tx) => {
+                    const isDispense = tx.type === 'dispense';
+                    const oil = oilMap.get(tx.oilId);
+                    const txDate = new Date(tx.date);
+                    const hasValidDate = !isNaN(txDate.getTime());
+                    const dateText = hasValidDate
+                      ? txDate.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })
+                      : '-';
+                    const timeText = hasValidDate
+                      ? txDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.'
+                      : '';
 
-                      <td className="py-3.5 px-3 whitespace-nowrap">
-                        {isDispense ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                            เบิกจ่าย
+                    return (
+                      <tr key={tx.id} className="hover:bg-amber-50/40 transition-colors">
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          <div className="font-bold text-slate-800 text-xs">{dateText}</div>
+                          <div className="text-[11px] text-slate-500">{timeText}</div>
+                        </td>
+
+                        <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                          {isDispense ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-orange-800">
+                              <ArrowUpRight className="w-3 h-3" />
+                              เบิก
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                              <ArrowDownLeft className="w-3 h-3" />
+                              รับ
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-3 min-w-[150px]">
+                          <div className="font-bold text-slate-900 leading-tight text-xs sm:text-sm">
+                            {tx.oilName}
+                          </div>
+                          {oil?.brand && (
+                            <div className="text-[11px] text-slate-500 font-medium">
+                              {oil.brand}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                          <span className="inline-block px-1.5 py-0.5 bg-slate-800 text-white rounded text-[11px] font-bold">
+                            {tx.viscosity}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-                            <ArrowDownLeft className="w-3.5 h-3.5" />
-                            รับเข้า
+                        </td>
+
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <span
+                            className={`font-black text-xs sm:text-sm ${
+                              isDispense ? 'text-orange-600' : 'text-emerald-600'
+                            }`}
+                          >
+                            {isDispense ? '-' : '+'}{tx.amount.toLocaleString('th-TH')}
                           </span>
-                        )}
-                      </td>
+                          <span className="text-[10px] text-slate-500 font-normal ml-0.5">ลิตร</span>
+                        </td>
 
-                      <td className="py-3.5 px-3 font-bold text-slate-900">
-                        {tx.oilName}
-                      </td>
+                        <td className="py-2.5 px-2.5 text-center whitespace-nowrap text-xs">
+                          <span className="text-slate-500">{tx.stockBefore}</span>
+                          <span className="mx-1 text-slate-300">→</span>
+                          <span className="font-bold text-slate-800">{tx.stockAfter}</span>
+                          <span className="text-[10px] text-slate-400 ml-0.5">ล.</span>
+                        </td>
 
-                      <td className="py-3.5 px-3 text-center">
-                        <span className="inline-block px-2 py-0.5 bg-slate-800 text-white rounded text-xs font-bold">
-                          {tx.viscosity}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-3 text-right whitespace-nowrap">
-                        <span
-                          className={`font-black text-sm ${
-                            isDispense ? 'text-orange-600' : 'text-emerald-600'
-                          }`}
-                        >
-                          {isDispense ? '-' : '+'}{tx.amount.toLocaleString('th-TH')}
-                        </span>
-                        <span className="text-[11px] text-slate-500 font-normal ml-1">ลิตร</span>
-                      </td>
-
-                      <td className="py-3.5 px-3 text-center whitespace-nowrap text-slate-500 text-xs">
-                        <span>{tx.stockBefore}</span>
-                        <span className="mx-1 text-slate-300">→</span>
-                        <span className="font-bold text-slate-800">{tx.stockAfter}</span> ลิตร
-                      </td>
-
-                      <td className="py-3.5 px-3 font-semibold text-slate-800 max-w-xs">
-                        {tx.recipientOrVehicle || '-'}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-right text-xs whitespace-nowrap font-bold text-slate-700">
-                        {tx.currentMileage ? `${tx.currentMileage.toLocaleString('th-TH')} กม.` : '-'}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-slate-600 text-xs">
-                        {tx.performedBy || '-'}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-xs text-slate-500 max-w-xs truncate">
-                        {tx.referenceNote || '-'}
-                      </td>
-
-                      {isAdmin && (
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEdit(tx)}
-                              title="แก้ไขข้อมูลรายการนี้"
-                              className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setTxToDelete(tx);
-                                setDeleteError(null);
-                              }}
-                              title="ลบรายการนี้ (ระบบจะคืน/หักยอดสต๊อกให้อัตโนมัติ)"
-                              className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                        <td className="py-2.5 px-3 min-w-[140px]">
+                          <div className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                            {isDispense && <Truck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                            <span className="truncate max-w-[200px]" title={tx.recipientOrVehicle}>
+                              {tx.recipientOrVehicle || '-'}
+                            </span>
                           </div>
                         </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+                        <td className="py-2.5 px-2.5 text-right text-xs whitespace-nowrap font-bold text-slate-700">
+                          {tx.currentMileage ? `${tx.currentMileage.toLocaleString('th-TH')} กม.` : '-'}
+                        </td>
+
+                        <td className="py-2.5 px-2.5 text-slate-600 text-xs truncate max-w-[110px]" title={tx.performedBy}>
+                          {tx.performedBy || '-'}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-xs text-slate-500 truncate max-w-[180px]" title={tx.referenceNote}>
+                          {tx.referenceNote || '-'}
+                        </td>
+
+                        {isAdmin && (
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(tx)}
+                                title="แก้ไขข้อมูลรายการนี้"
+                                className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTxToDelete(tx);
+                                  setDeleteError(null);
+                                }}
+                                title="ลบรายการนี้ (ระบบจะคืน/หักยอดสต๊อกให้อัตโนมัติ)"
+                                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom Card Summary Row */}
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 font-medium">
+              <span>
+                แสดงผล <strong>{filteredTxs.length.toLocaleString('th-TH')}</strong> รายการ จากทั้งหมด <strong>{transactions.length.toLocaleString('th-TH')}</strong> รายการ
+              </span>
+              <div className="flex items-center gap-4 text-xs">
+                <span>
+                  ยอดเบิกจ่ายรวม: <strong className="text-orange-600 font-bold">{totalDispenseLiters.toLocaleString('th-TH')}</strong> ลิตร
+                </span>
+                <span className="text-slate-300">|</span>
+                <span>
+                  ยอดรับเข้ารวม: <strong className="text-emerald-600 font-bold">{totalReceiveLiters.toLocaleString('th-TH')}</strong> ลิตร
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>

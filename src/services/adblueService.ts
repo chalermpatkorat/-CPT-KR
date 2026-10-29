@@ -512,3 +512,109 @@ export const exportAdBlueRefillsToExcel = (
   XLSX.utils.book_append_sheet(wb, ws, 'ประวัติเติม AdBlue');
   XLSX.writeFile(wb, filename);
 };
+
+// Batch import / restore AdBlue refill records (CSV or Excel)
+export const batchRestoreAdBlue = async (
+  newRecords: Partial<AdBlueRefillRecord>[],
+  mode: 'merge' | 'replace',
+  userName: string
+): Promise<{ added: number; updated: number; total: number }> => {
+  const now = new Date().toISOString();
+  const currentRecords = getLocalAdBlueRefills();
+  let finalRecords: AdBlueRefillRecord[] = [];
+  let added = 0;
+  let updated = 0;
+
+  if (mode === 'replace') {
+    const list: AdBlueRefillRecord[] = newRecords.map((r, idx) => {
+      const id = r.id || `adblue_imp_${Date.now()}_${idx + 1}`;
+      unmarkAdBlueIdDeleted(id);
+      return {
+        id,
+        date: r.date || now,
+        licensePlate: (r.licensePlate || '').trim(),
+        factory: r.factory || 'โรงงาน 1',
+        percentBefore: Number(r.percentBefore) || 0,
+        percentAfter: Number(r.percentAfter) || 100,
+        litersFilled: Number(r.litersFilled) || 0,
+        currentMileage: Number(r.currentMileage) || 0,
+        filledBy: r.filledBy || userName || 'ช่างประจำคลัง',
+        deductedFromStock: r.deductedFromStock ?? true,
+        notes: r.notes || '',
+        createdAt: r.date ? new Date(r.date).toISOString() : now,
+        updatedAt: now,
+        updatedBy: userName || 'ผู้ดูแลระบบ',
+      };
+    });
+    finalRecords = list;
+    added = list.length;
+  } else {
+    // Merge mode: Match by key: licensePlate + date
+    const map = new Map<string, AdBlueRefillRecord>();
+    currentRecords.forEach((r) => map.set(`${r.licensePlate.trim()}_${r.date.slice(0, 16)}`, r));
+    finalRecords = [...currentRecords];
+
+    newRecords.forEach((r, idx) => {
+      const key = `${(r.licensePlate || '').trim()}_${(r.date || '').slice(0, 16)}`;
+      const existing = (r.id && finalRecords.find((item) => item.id === r.id)) || map.get(key);
+
+      if (existing) {
+        const updatedRecord: AdBlueRefillRecord = {
+          ...existing,
+          ...r,
+          percentBefore: r.percentBefore !== undefined ? Number(r.percentBefore) : existing.percentBefore,
+          percentAfter: r.percentAfter !== undefined ? Number(r.percentAfter) : existing.percentAfter,
+          litersFilled: r.litersFilled !== undefined ? Number(r.litersFilled) : existing.litersFilled,
+          currentMileage: r.currentMileage !== undefined ? Number(r.currentMileage) : existing.currentMileage,
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        const index = finalRecords.findIndex((item) => item.id === existing.id);
+        if (index !== -1) {
+          finalRecords[index] = updatedRecord;
+        }
+        updated++;
+      } else {
+        const id = r.id || `adblue_imp_${Date.now()}_${idx + 1}`;
+        unmarkAdBlueIdDeleted(id);
+        const newRecord: AdBlueRefillRecord = {
+          id,
+          date: r.date || now,
+          licensePlate: (r.licensePlate || '').trim(),
+          factory: r.factory || 'โรงงาน 1',
+          percentBefore: Number(r.percentBefore) || 0,
+          percentAfter: Number(r.percentAfter) || 100,
+          litersFilled: Number(r.litersFilled) || 0,
+          currentMileage: Number(r.currentMileage) || 0,
+          filledBy: r.filledBy || userName || 'ช่างประจำคลัง',
+          deductedFromStock: r.deductedFromStock ?? true,
+          notes: r.notes || '',
+          createdAt: r.date ? new Date(r.date).toISOString() : now,
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        finalRecords.unshift(newRecord);
+        map.set(key, newRecord);
+        added++;
+      }
+    });
+  }
+
+  saveLocalAdBlueRefills(finalRecords);
+
+  runInBackground(async () => {
+    const batchSize = 400;
+    for (let i = 0; i < finalRecords.length; i += batchSize) {
+      const chunk = finalRecords.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+      for (const r of chunk) {
+        const ref = doc(collection(db, ADBLUE_COLLECTION), r.id);
+        batch.set(ref, cleanForFirestore(r));
+      }
+      await batch.commit();
+    }
+  });
+
+  return { added, updated, total: finalRecords.length };
+};
+

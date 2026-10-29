@@ -11,12 +11,22 @@ import {
   addFactory,
   updateFactoryName,
   deleteFactory,
-  DEFAULT_FACTORIES
+  DEFAULT_FACTORIES,
+  batchRestoreVehicles
 } from '../services/vehicleService';
 import {
   deleteAdBlueRefill,
-  exportAdBlueRefillsToExcel
+  exportAdBlueRefillsToExcel,
+  batchRestoreAdBlue
 } from '../services/adblueService';
+import {
+  exportVehiclesToCsv,
+  downloadVehiclesTemplateCsv,
+  parseVehiclesFromRows,
+  exportAdBlueToCsv,
+  downloadAdBlueTemplateCsv,
+  parseAdBlueFromRows
+} from '../services/csvService';
 import { recordDispense } from '../services/stockService';
 import * as XLSX from 'xlsx';
 import {
@@ -34,6 +44,7 @@ import {
   Trash2,
   Wrench,
   Download,
+  Upload,
   X,
   Check,
   Sparkles,
@@ -42,11 +53,13 @@ import {
   Percent,
   Layers,
   ShieldAlert,
-  Maximize2
+  Maximize2,
+  FileSpreadsheet
 } from 'lucide-react';
 import { VehiclePrintModal } from './VehiclePrintModal';
 import { AdBlueRefillModal } from './AdBlueRefillModal';
 import { AdBluePrintModal } from './AdBluePrintModal';
+import { CsvDataModal } from './CsvDataModal';
 
 interface VehiclesTabProps {
   vehicles: Vehicle[];
@@ -95,6 +108,10 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
 
   // AdBlue Print Modal State
   const [isAdBluePrintOpen, setIsAdBluePrintOpen] = useState(false);
+
+  // CSV Export & Import / Restore Modal States
+  const [isVehicleCsvModalOpen, setIsVehicleCsvModalOpen] = useState(false);
+  const [isAdBlueCsvModalOpen, setIsAdBlueCsvModalOpen] = useState(false);
 
   // Add / Edit Vehicle Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -679,10 +696,32 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
               <button
                 type="button"
                 onClick={() => handleOpenPrint(selectedFactory)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
               >
                 <Printer className="w-4 h-4 text-slate-950" />
-                <span>สั่งพิมพ์ประวัติถ่ายน้ำมันเครื่อง</span>
+                <span>สั่งพิมพ์</span>
+              </button>
+
+              {/* Export CSV Button */}
+              <button
+                type="button"
+                onClick={() => exportVehiclesToCsv(vehicles)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+                title="ส่งออกประวัติถ่ายน้ำมันเครื่องเป็นไฟล์ CSV (UTF-8 พร้อมเปิดใน Excel)"
+              >
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span>ส่งออก CSV</span>
+              </button>
+
+              {/* Import CSV / Restore Button */}
+              <button
+                type="button"
+                onClick={() => setIsVehicleCsvModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600/80 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition cursor-pointer border border-emerald-400/30"
+                title="นำเข้าไฟล์ CSV หรือกู้คืนข้อมูลรถและรอบเปลี่ยนถ่าย"
+              >
+                <Upload className="w-4 h-4" />
+                <span>นำเข้า CSV / กู้คืน</span>
               </button>
 
               {isAdmin && (
@@ -702,7 +741,7 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
                 <button
                   type="button"
                   onClick={handleOpenNewAdBlueRefill}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>+ บันทึกเติม AdBlue</span>
@@ -712,19 +751,39 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
               <button
                 type="button"
                 onClick={() => setIsAdBluePrintOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
               >
                 <Printer className="w-4 h-4" />
-                <span>พิมพ์รายงาน AdBlue</span>
+                <span>พิมพ์รายงาน</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => exportAdBlueToCsv(adBlueRefills)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+                title="ส่งออกประวัติเติม AdBlue เป็นไฟล์ CSV (UTF-8 พร้อมเปิดใน Excel)"
+              >
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span>ส่งออก CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAdBlueCsvModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-teal-600/80 hover:bg-teal-600 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition cursor-pointer border border-teal-400/30"
+                title="นำเข้าไฟล์ CSV หรือกู้คืนข้อมูลประวัติเติม AdBlue"
+              >
+                <Upload className="w-4 h-4" />
+                <span>นำเข้า CSV / กู้คืน</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => exportAdBlueRefillsToExcel(adBlueRefills)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
               >
                 <Download className="w-4 h-4" />
-                <span>Excel (.xlsx)</span>
+                <span>Excel</span>
               </button>
             </>
           )}
@@ -2726,6 +2785,49 @@ export const VehiclesTab: React.FC<VehiclesTabProps> = ({
         initialFactory={selectedFactory}
         userName={userName}
       />
+
+      {/* CSV Export & Import / Restore Modal for Vehicles */}
+      <CsvDataModal
+        isOpen={isVehicleCsvModalOpen}
+        onClose={() => setIsVehicleCsvModalOpen(false)}
+        title="ส่งออก / นำเข้า CSV & กู้คืน: ประวัติถ่ายน้ำมันเครื่อง"
+        subtitle="ระบบรองรับทั้งไฟล์ CSV และ Excel (.xlsx) พร้อมคำนวณรอบและอัปเดตทะเบียนรถอัตโนมัติ"
+        domainName="ข้อมูลรถและรอบเปลี่ยนถ่าย"
+        isAdmin={isAdmin}
+        currentUserName={userName}
+        onExportCurrentCsv={() => exportVehiclesToCsv(vehicles)}
+        onDownloadTemplateCsv={downloadVehiclesTemplateCsv}
+        parseRows={parseVehiclesFromRows}
+        onExecuteImport={async (data, mode) => {
+          return await batchRestoreVehicles(data, mode, userName);
+        }}
+        onSuccessNotification={(msg) => {
+          setSuccessToast(msg);
+          setTimeout(() => setSuccessToast(null), 4000);
+        }}
+      />
+
+      {/* CSV Export & Import / Restore Modal for AdBlue */}
+      <CsvDataModal
+        isOpen={isAdBlueCsvModalOpen}
+        onClose={() => setIsAdBlueCsvModalOpen(false)}
+        title="ส่งออก / นำเข้า CSV & กู้คืน: ประวัติเติมน้ำยาบำบัดไอเสีย AdBlue"
+        subtitle="บันทึกและกู้คืนรายการเติม AdBlue (%ก่อนเติม, %หลังเติม, ลิตร, เลขไมล์, ผู้เติม)"
+        domainName="ประวัติเติม AdBlue"
+        isAdmin={isAdmin}
+        currentUserName={userName}
+        onExportCurrentCsv={() => exportAdBlueToCsv(adBlueRefills)}
+        onDownloadTemplateCsv={downloadAdBlueTemplateCsv}
+        parseRows={parseAdBlueFromRows}
+        onExecuteImport={async (data, mode) => {
+          return await batchRestoreAdBlue(data, mode, userName);
+        }}
+        onSuccessNotification={(msg) => {
+          setSuccessToast(msg);
+          setTimeout(() => setSuccessToast(null), 4000);
+        }}
+      />
     </div>
   );
 };
+

@@ -78,25 +78,54 @@ try {
   // Ignore
 }
 
-// In-memory / storage Google access token cache for Google Sheets sync
+// In-memory / storage Google OAuth access token cache for Google Sheets sync
 let cachedGoogleAccessToken: string | null = null;
+let googleAccessTokenExpiry: number = 0;
+
 try {
   cachedGoogleAccessToken = localStorage.getItem('google_access_token');
+  const storedExpiry = localStorage.getItem('google_token_expiry');
+  if (storedExpiry) {
+    googleAccessTokenExpiry = parseInt(storedExpiry, 10) || 0;
+  }
 } catch {
   // Ignore in case localStorage is blocked
 }
 
-export const getAccessToken = async (): Promise<string | null> => {
-  if (cachedGoogleAccessToken) {
-    return cachedGoogleAccessToken;
+export const setCachedGoogleToken = (token: string, expiresInSec: number = 3600) => {
+  cachedGoogleAccessToken = token;
+  // Expire 2 minutes earlier to prevent edge-of-expiry failure
+  googleAccessTokenExpiry = Date.now() + Math.max(60, expiresInSec - 120) * 1000;
+  try {
+    localStorage.setItem('google_access_token', token);
+    localStorage.setItem('google_token_expiry', String(googleAccessTokenExpiry));
+  } catch {
+    // Ignore
   }
-  if (auth.currentUser) {
-    try {
-      const token = await auth.currentUser.getIdToken();
-      return token;
-    } catch {
-      return null;
-    }
+};
+
+export const clearGoogleOAuthToken = () => {
+  cachedGoogleAccessToken = null;
+  googleAccessTokenExpiry = 0;
+  try {
+    localStorage.removeItem('google_access_token');
+    localStorage.removeItem('google_token_expiry');
+  } catch {
+    // Ignore
+  }
+};
+
+export const hasValidGoogleToken = (): boolean => {
+  if (!cachedGoogleAccessToken) return false;
+  if (googleAccessTokenExpiry && Date.now() > googleAccessTokenExpiry) {
+    return false;
+  }
+  return true;
+};
+
+export const getAccessToken = async (requireFresh = false): Promise<string | null> => {
+  if (!requireFresh && hasValidGoogleToken()) {
+    return cachedGoogleAccessToken;
   }
   return null;
 };
@@ -163,12 +192,7 @@ export const signInWithGoogle = async () => {
   const result = await signInWithPopup(auth, provider);
   const credential = GoogleAuthProvider.credentialFromResult(result);
   if (credential?.accessToken) {
-    cachedGoogleAccessToken = credential.accessToken;
-    try {
-      localStorage.setItem('google_access_token', credential.accessToken);
-    } catch {
-      // Ignore
-    }
+    setCachedGoogleToken(credential.accessToken, 3600);
   }
   return result;
 };

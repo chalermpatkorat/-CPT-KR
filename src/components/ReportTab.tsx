@@ -1,20 +1,31 @@
 import React, { useState } from 'react';
 import { OilItem, StockTransaction } from '../types';
 import { exportStockReportToExcel } from '../services/excelService';
+import {
+  exportStockReportToCsv,
+  downloadStockTemplateCsv,
+  parseStockFromRows
+} from '../services/csvService';
+import { batchRestoreOils } from '../services/stockService';
 import { StockPrintModal } from './StockPrintModal';
+import { CsvDataModal } from './CsvDataModal';
 import {
   Printer,
   FileSpreadsheet,
   Download,
+  Upload,
   CheckCircle,
+  CheckCircle2,
   Layers,
   Droplets,
+  X,
 } from 'lucide-react';
 
 interface ReportTabProps {
   oils: OilItem[];
   transactions: StockTransaction[];
   userName: string;
+  isAdmin?: boolean;
   onSyncGoogleSheets: () => void;
   isSyncingSheets: boolean;
   sheetsUrl?: string | null;
@@ -23,6 +34,7 @@ interface ReportTabProps {
 export const ReportTab: React.FC<ReportTabProps> = ({
   oils,
   userName,
+  isAdmin = false,
   onSyncGoogleSheets,
   isSyncingSheets,
   sheetsUrl,
@@ -38,6 +50,8 @@ export const ReportTab: React.FC<ReportTabProps> = ({
   );
 
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const totalStockLiters = oils.reduce((sum, o) => sum + (o.currentStock || 0), 0);
   const totalUsedLiters = oils.reduce((sum, o) => sum + (o.totalUsed || 0), 0);
@@ -53,8 +67,28 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     exportStockReportToExcel(oils, `รายงานสต๊อกน้ำมันเครื่องและแอดบลู_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const handleExportCsv = () => {
+    exportStockReportToCsv(oils);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top-2 no-print">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <CheckCircle2 className="w-5 h-5" />
+            <span>{toastMsg}</span>
+          </div>
+          <button
+            onClick={() => setToastMsg(null)}
+            className="p-1 hover:bg-white/20 rounded-lg cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Action Bar (Hidden on print) */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div>
@@ -67,40 +101,60 @@ export const ReportTab: React.FC<ReportTabProps> = ({
                 รายงานสต๊อกคงเหลือ
               </h2>
               <p className="text-xs text-slate-500">
-                ข้อมูลสรุปสต๊อกปัจจุบัน (น้ำมันเครื่อง & น้ำยาแอดบลู) • พร้อมระบบสั่งพิมพ์เป็นทางการ และดาวน์โหลด Excel / Google Sheets
+                ข้อมูลสรุปสต๊อกปัจจุบัน (น้ำมันเครื่อง & น้ำยาแอดบลู) • ส่งออก CSV/Excel และนำเข้าข้อมูล/กู้คืน
               </p>
             </div>
           </div>
         </div>
 
-        {/* Buttons: Print, Excel, Google Sheets */}
+        {/* Buttons: Print, CSV, Import/Restore, Excel, Google Sheets */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
           >
             <Printer className="w-4 h-4 text-amber-400" />
-            <span>สั่งพิมพ์รายงาน (Print)</span>
+            <span>สั่งพิมพ์รายงาน</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs sm:text-sm font-bold border border-slate-300 shadow-xs transition cursor-pointer"
+            title="ส่งออกรายงานสต๊อกเป็นไฟล์ CSV (UTF-8 พร้อมเปิดใน Excel)"
+          >
+            <Download className="w-4 h-4 text-emerald-600" />
+            <span>ส่งออก CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsCsvModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+            title="นำเข้าไฟล์ CSV หรือกู้คืนข้อมูลสต๊อกสินค้า"
+          >
+            <Upload className="w-4 h-4" />
+            <span>นำเข้า CSV / กู้คืน</span>
           </button>
 
           <button
             type="button"
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer"
+            className="flex items-center gap-2 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
           >
             <Download className="w-4 h-4" />
-            <span>ส่งออก Excel (.xlsx)</span>
+            <span>Excel (.xlsx)</span>
           </button>
 
           <button
             type="button"
             onClick={onSyncGoogleSheets}
             disabled={isSyncingSheets}
-            className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs sm:text-sm font-bold shadow-2xs transition cursor-pointer disabled:opacity-50"
           >
             <FileSpreadsheet className={`w-4 h-4 text-emerald-600 ${isSyncingSheets ? 'animate-spin' : ''}`} />
-            <span>{isSyncingSheets ? 'กำลังซิงค์ Sheets...' : 'ซิงค์ Google Sheets'}</span>
+            <span>{isSyncingSheets ? 'กำลังซิงค์...' : 'Google Sheets'}</span>
           </button>
         </div>
       </div>
@@ -300,6 +354,27 @@ export const ReportTab: React.FC<ReportTabProps> = ({
         onClose={() => setIsPrintModalOpen(false)}
         oils={oils}
         userName={userName}
+      />
+
+      {/* CSV Export & Import / Restore Modal for Stock */}
+      <CsvDataModal
+        isOpen={isCsvModalOpen}
+        onClose={() => setIsCsvModalOpen(false)}
+        title="ส่งออก / นำเข้า CSV & กู้คืน: หน้ารายงานสต๊อกคงเหลือ"
+        subtitle="บันทึกและกู้คืนรายการน้ำมันเครื่องและน้ำยาแอดบลู (ชื่อสินค้า, ยี่ห้อ, คงเหลือ, จุดเตือน)"
+        domainName="สต๊อกคงเหลือ"
+        isAdmin={isAdmin}
+        currentUserName={userName}
+        onExportCurrentCsv={handleExportCsv}
+        onDownloadTemplateCsv={downloadStockTemplateCsv}
+        parseRows={parseStockFromRows}
+        onExecuteImport={async (data, mode) => {
+          return await batchRestoreOils(data, mode, userName);
+        }}
+        onSuccessNotification={(msg) => {
+          setToastMsg(msg);
+          setTimeout(() => setToastMsg(null), 4000);
+        }}
       />
     </div>
   );

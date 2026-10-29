@@ -2,9 +2,15 @@ import React, { useState } from 'react';
 import { StockTransaction, OilItem } from '../types';
 import {
   updateTransactionRecord,
-  deleteTransactionRecord
+  deleteTransactionRecord,
+  batchRestoreTransactions
 } from '../services/stockService';
 import { exportAllToExcel } from '../services/excelService';
+import {
+  exportTransactionsToCsv,
+  downloadTransactionsTemplateCsv,
+  parseTransactionsFromRows
+} from '../services/csvService';
 import {
   History,
   ArrowUpRight,
@@ -18,9 +24,12 @@ import {
   FileSpreadsheet,
   Printer,
   Truck,
-  Maximize2
+  Maximize2,
+  Download,
+  Upload
 } from 'lucide-react';
 import { HistoryPrintModal } from './HistoryPrintModal';
+import { CsvDataModal } from './CsvDataModal';
 
 interface HistoryTabProps {
   transactions: StockTransaction[];
@@ -58,6 +67,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
   // Print Modal
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
+  // CSV Modal
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
 
   // Filtered transactions
   const filteredTxs = transactions.filter((tx) => {
@@ -214,19 +226,39 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           <button
             type="button"
             onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
           >
             <Printer className="w-4 h-4 text-amber-400" />
-            <span>สั่งพิมพ์ประวัติ (Print)</span>
+            <span>สั่งพิมพ์ประวัติ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => exportTransactionsToCsv(filteredTxs)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs sm:text-sm font-bold border border-slate-300 shadow-xs transition cursor-pointer"
+            title="ส่งออกประวัติเบิกจ่ายและรับเข้าเป็นไฟล์ CSV (UTF-8 พร้อมเปิดใน Excel)"
+          >
+            <Download className="w-4 h-4 text-emerald-600" />
+            <span>ส่งออก CSV</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsCsvModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+            title="นำเข้าไฟล์ CSV หรือกู้คืนข้อมูลประวัติการเบิกจ่ายและรับเข้า"
+          >
+            <Upload className="w-4 h-4" />
+            <span>นำเข้า CSV / กู้คืน</span>
           </button>
 
           <button
             type="button"
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>ส่งออก Excel (.xlsx)</span>
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Excel (.xlsx)</span>
           </button>
         </div>
       </div>
@@ -697,6 +729,27 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         transactions={transactions}
         oils={oils}
         userName={userName}
+      />
+
+      {/* CSV Export & Import / Restore Modal for Transactions */}
+      <CsvDataModal
+        isOpen={isCsvModalOpen}
+        onClose={() => setIsCsvModalOpen(false)}
+        title="ส่งออก / นำเข้า CSV & กู้คืน: ประวัติการเบิกจ่ายและรับเข้า"
+        subtitle="บันทึกและกู้คืนรายการทำธุรกรรมสต๊อก (เบิกจ่าย/รับเข้า, สินค้า, จำนวนลิตร, ทะเบียนรถ, ผู้เบิก)"
+        domainName="ประวัติเบิกจ่ายและรับเข้า"
+        isAdmin={isAdmin}
+        currentUserName={userName}
+        onExportCurrentCsv={() => exportTransactionsToCsv(filteredTxs)}
+        onDownloadTemplateCsv={downloadTransactionsTemplateCsv}
+        parseRows={parseTransactionsFromRows}
+        onExecuteImport={async (data, mode) => {
+          return await batchRestoreTransactions(data, mode, userName);
+        }}
+        onSuccessNotification={(msg) => {
+          setFeedbackMsg(msg);
+          setTimeout(() => setFeedbackMsg(null), 4000);
+        }}
       />
     </div>
   );

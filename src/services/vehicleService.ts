@@ -986,3 +986,120 @@ export const deleteFactory = async (factoryId: string, factoryName: string): Pro
     await deleteDoc(facRef);
   });
 };
+
+// Batch import / restore vehicles (CSV or Excel)
+export const batchRestoreVehicles = async (
+  newItems: Partial<Vehicle>[],
+  mode: 'merge' | 'replace',
+  userName: string
+): Promise<{ added: number; updated: number; total: number }> => {
+  const now = new Date().toISOString();
+  const currentVehicles = getLocalVehicles();
+  let finalVehicles: Vehicle[] = [];
+  let added = 0;
+  let updated = 0;
+
+  if (mode === 'replace') {
+    const newVehicles: Vehicle[] = newItems.map((item, idx) => {
+      const id = item.id || `veh_imp_${Date.now()}_${idx + 1}`;
+      unmarkVehicleIdDeleted(id);
+      return {
+        id,
+        licensePlate: (item.licensePlate || '').trim(),
+        factory: item.factory || 'โรงงาน 1',
+        route: item.route || '',
+        distancePerTrip: Number(item.distancePerTrip) || 0,
+        tripsPerMonth: Number(item.tripsPerMonth) || 0,
+        currentMileage: Number(item.currentMileage) || 0,
+        lastOilChangeMileage:
+          item.lastOilChangeMileage !== undefined
+            ? Number(item.lastOilChangeMileage)
+            : Number(item.currentMileage) || 0,
+        lastOilChangeDate: item.lastOilChangeDate || now.slice(0, 10),
+        cycleType: item.cycleType === 'month' ? 'month' : 'distance',
+        oilChangeIntervalKm: Number(item.oilChangeIntervalKm) || 20000,
+        intervalMonths: Number(item.intervalMonths) || 6,
+        nextOilChangeDueDate: item.nextOilChangeDueDate || undefined,
+        notes: item.notes || '',
+        updatedAt: now,
+        updatedBy: userName || 'ผู้ดูแลระบบ',
+      };
+    });
+    finalVehicles = newVehicles;
+    added = newVehicles.length;
+  } else {
+    const map = new Map<string, Vehicle>();
+    currentVehicles.forEach((v) => map.set(v.licensePlate.trim().toLowerCase(), v));
+    finalVehicles = [...currentVehicles];
+
+    newItems.forEach((item, idx) => {
+      const key = (item.licensePlate || '').trim().toLowerCase();
+      if (!key) return;
+      const existing = map.get(key);
+      if (existing) {
+        const updatedVehicle: Vehicle = {
+          ...existing,
+          ...item,
+          factory: item.factory || existing.factory,
+          currentMileage: item.currentMileage !== undefined ? Number(item.currentMileage) : existing.currentMileage,
+          lastOilChangeMileage:
+            item.lastOilChangeMileage !== undefined ? Number(item.lastOilChangeMileage) : existing.lastOilChangeMileage,
+          lastOilChangeDate: item.lastOilChangeDate || existing.lastOilChangeDate || now.slice(0, 10),
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        const index = finalVehicles.findIndex((v) => v.id === existing.id);
+        if (index !== -1) {
+          finalVehicles[index] = updatedVehicle;
+        }
+        map.set(key, updatedVehicle);
+        updated++;
+      } else {
+        const id = item.id || `veh_imp_${Date.now()}_${idx + 1}`;
+        unmarkVehicleIdDeleted(id);
+        const newVehicle: Vehicle = {
+          id,
+          licensePlate: (item.licensePlate || '').trim(),
+          factory: item.factory || 'โรงงาน 1',
+          route: item.route || '',
+          distancePerTrip: Number(item.distancePerTrip) || 0,
+          tripsPerMonth: Number(item.tripsPerMonth) || 0,
+          currentMileage: Number(item.currentMileage) || 0,
+          lastOilChangeMileage:
+            item.lastOilChangeMileage !== undefined
+              ? Number(item.lastOilChangeMileage)
+              : Number(item.currentMileage) || 0,
+          lastOilChangeDate: item.lastOilChangeDate || now.slice(0, 10),
+          cycleType: item.cycleType === 'month' ? 'month' : 'distance',
+          oilChangeIntervalKm: Number(item.oilChangeIntervalKm) || 20000,
+          intervalMonths: Number(item.intervalMonths) || 6,
+          nextOilChangeDueDate: item.nextOilChangeDueDate || undefined,
+          notes: item.notes || '',
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        finalVehicles.push(newVehicle);
+        map.set(key, newVehicle);
+        added++;
+      }
+    });
+  }
+
+  saveLocalVehicles(finalVehicles);
+
+  runInBackground(async () => {
+    const batchSize = 400;
+    for (let i = 0; i < finalVehicles.length; i += batchSize) {
+      const chunk = finalVehicles.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+      for (const v of chunk) {
+        const ref = doc(collection(db, VEHICLES_COLLECTION), v.id);
+        batch.set(ref, cleanForFirestore(v));
+      }
+      await batch.commit();
+    }
+  });
+
+  return { added, updated, total: finalVehicles.length };
+};
+

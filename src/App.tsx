@@ -19,7 +19,10 @@ import {
   subscribeFactories
 } from './services/vehicleService';
 import { subscribeAdBlueRefills } from './services/adblueService';
-import { syncStockToGoogleSheets } from './services/googleSheetsService';
+import {
+  syncAllDataToGoogleSheets,
+  getStoredGoogleSheetsConfig
+} from './services/googleSheetsService';
 
 import { Navbar, ActiveTab } from './components/Navbar';
 import { StockListTab } from './components/StockListTab';
@@ -32,6 +35,7 @@ import { HistoryTab } from './components/HistoryTab';
 import { AlertModal } from './components/AlertModal';
 import { AuthModal } from './components/AuthModal';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
+import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 
 import {
   AlertTriangle,
@@ -70,10 +74,19 @@ export default function App() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
 
   // Google Sheets state
+  const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetsUrl, setSheetsUrl] = useState<string | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [lastSpreadsheetId, setLastSpreadsheetId] = useState<string | undefined>(undefined);
+
+  // Initialize stored Google Sheets config on startup
+  useEffect(() => {
+    getStoredGoogleSheetsConfig().then((cfg) => {
+      if (cfg.spreadsheetId) setLastSpreadsheetId(cfg.spreadsheetId);
+      if (cfg.spreadsheetUrl) setSheetsUrl(cfg.spreadsheetUrl);
+    });
+  }, []);
 
   // 1. Initialize Auth State and Cloud Sync Status
   useEffect(() => {
@@ -177,39 +190,33 @@ export default function App() {
     setActiveTab('dispense');
   };
 
-  // Google Sheets Sync Handler
-  const handleSyncGoogleSheets = async () => {
-    if (!user) {
-      setIsAuthModalOpen(true);
-      return;
-    }
+  // Background Auto-Sync to Google Sheets (when enabled by user)
+  useEffect(() => {
+    const isAutoSync = localStorage.getItem('cpt_google_sheets_auto_sync') === 'true';
+    const targetId = localStorage.getItem('cpt_google_spreadsheet_id') || lastSpreadsheetId;
+    if (!isAutoSync || !targetId || loadingData) return;
 
-    setIsSyncingSheets(true);
-    setSyncNotice(null);
-
-    try {
-      const res = await syncStockToGoogleSheets(oils, transactions, lastSpreadsheetId);
-      setLastSpreadsheetId(res.spreadsheetId);
-      setSheetsUrl(res.spreadsheetUrl);
-      setSyncNotice('ซิงค์ข้อมูลสต๊อกและประวัติลงใน Google Sheets สำเร็จเรียบร้อย!');
-    } catch (err: any) {
-      console.error('Google Sheets sync error:', err);
-      if (err.message && err.message.includes('Google Workspace')) {
-        try {
-          await signInWithGoogle();
-          const retryRes = await syncStockToGoogleSheets(oils, transactions, lastSpreadsheetId);
-          setLastSpreadsheetId(retryRes.spreadsheetId);
-          setSheetsUrl(retryRes.spreadsheetUrl);
-          setSyncNotice('ซิงค์ข้อมูลสต๊อกและประวัติลงใน Google Sheets สำเร็จเรียบร้อย!');
-        } catch (e: any) {
-          setSyncNotice(e.message || 'ไม่สามารถเชื่อมต่อ Google Sheets ได้ กรุณาตรวจสอบสิทธิ์');
-        }
-      } else {
-        setSyncNotice(err.message || 'เกิดข้อผิดพลาดในการซิงค์ข้อมูลไปยัง Google Sheets');
+    // Debounce 4 seconds so typing or batch edits don't spam Google Sheets API
+    const timer = setTimeout(async () => {
+      try {
+        await syncAllDataToGoogleSheets({
+          oils,
+          transactions,
+          vehicles,
+          adBlueRefills,
+          targetSpreadsheetId: targetId,
+        });
+      } catch (err) {
+        console.warn('Background auto-sync notice:', err);
       }
-    } finally {
-      setIsSyncingSheets(false);
-    }
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [oils, transactions, vehicles, adBlueRefills, lastSpreadsheetId, loadingData]);
+
+  // Google Sheets Sync Handler - Opens the full management and sync modal
+  const handleSyncGoogleSheets = () => {
+    setIsSheetsModalOpen(true);
   };
 
   const currentUserName = user?.displayName || user?.email?.split('@')[0] || 'สมาชิกทีม';
@@ -297,7 +304,7 @@ export default function App() {
       {/* Google Sheets Sync Success Toast Notification */}
       {syncNotice && sheetsUrl && (
         <div className="max-w-7xl mx-auto w-full px-4 pt-4 no-print">
-          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex items-center justify-between gap-4 text-emerald-900 shadow-sm animate-in fade-in">
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-900 shadow-sm animate-in fade-in">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
                 <FileSpreadsheet className="w-5 h-5" />
@@ -305,11 +312,18 @@ export default function App() {
               <div>
                 <p className="font-bold text-sm">{syncNotice}</p>
                 <p className="text-xs text-emerald-700 mt-0.5">
-                  ระบบได้สร้างชีต "สต๊อกคงเหลือ" และ "ประวัติเบิกจ่าย-รับเข้า" บน Google Drive ของคุณเรียบร้อย
+                  ซิงค์ครบถ้วน 5 หมวด: สต๊อกคงเหลือ, ประวัติเบิกจ่าย-รับเข้า, ข้อมูลรถ&รอบเปลี่ยนถ่าย, ประวัติเติม AdBlue, สรุปการใช้รายเดือน
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setIsSheetsModalOpen(true)}
+                className="px-3 py-1.5 bg-white hover:bg-slate-50 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                ตั้งค่าซิงค์ / เปลี่ยนชีต
+              </button>
               <a
                 href={sheetsUrl}
                 target="_blank"
@@ -320,6 +334,7 @@ export default function App() {
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
               <button
+                type="button"
                 onClick={() => setSyncNotice(null)}
                 className="p-1.5 text-emerald-600 hover:text-emerald-900 rounded-lg cursor-pointer"
               >
@@ -400,6 +415,7 @@ export default function App() {
                 oils={oils}
                 transactions={transactions}
                 userName={currentUserName}
+                isAdmin={isAdmin}
                 onSyncGoogleSheets={handleSyncGoogleSheets}
                 isSyncingSheets={isSyncingSheets}
                 sheetsUrl={sheetsUrl}
@@ -482,6 +498,22 @@ export default function App() {
         isOpen={isRulesModalOpen}
         onClose={() => setIsRulesModalOpen(false)}
         projectId="engine-oil---adblue-cptkorat"
+      />
+
+      {/* Google Sheets Sync & Settings Modal */}
+      <GoogleSheetsSyncModal
+        isOpen={isSheetsModalOpen}
+        onClose={() => setIsSheetsModalOpen(false)}
+        user={user}
+        oils={oils}
+        transactions={transactions}
+        vehicles={vehicles}
+        adBlueRefills={adBlueRefills}
+        onSyncSuccess={(res) => {
+          setLastSpreadsheetId(res.spreadsheetId);
+          setSheetsUrl(res.spreadsheetUrl);
+          setSyncNotice(`ซิงค์ข้อมูลทั้ง 5 หมวดลง Google Sheets สำเร็จเรียบร้อย (${res.sheetsSynced.join(', ')})`);
+        }}
       />
     </div>
   );

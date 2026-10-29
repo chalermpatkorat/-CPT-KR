@@ -829,3 +829,200 @@ export const deleteTransactionsForVehicleInMonth = async (
 
   return toDelete.length;
 };
+
+// Batch import / restore stock items (oils & inventory)
+export const batchRestoreOils = async (
+  newItems: Partial<OilItem>[],
+  mode: 'merge' | 'replace',
+  userName: string
+): Promise<{ added: number; updated: number; total: number }> => {
+  const now = new Date().toISOString();
+  const currentOils = getLocalOils();
+  let finalOils: OilItem[] = [];
+  let added = 0;
+  let updated = 0;
+
+  if (mode === 'replace') {
+    const list: OilItem[] = newItems.map((item, idx) => ({
+      id: item.id || `oil_imp_${Date.now()}_${idx + 1}`,
+      name: (item.name || '').trim(),
+      brand: (item.brand || '-').trim(),
+      viscosity: (item.viscosity || '-').trim(),
+      oilType: item.oilType || 'สังเคราะห์',
+      currentStock: Number(item.currentStock) || 0,
+      totalUsed: Number(item.totalUsed) || 0,
+      totalReceived: Number(item.totalReceived) || (Number(item.currentStock) || 0) + (Number(item.totalUsed) || 0),
+      minStockThreshold: Number(item.minStockThreshold) || 20,
+      unit: item.unit || 'ลิตร',
+      notes: item.notes || '',
+      updatedAt: now,
+      updatedBy: userName || 'ผู้ดูแลระบบ',
+    }));
+    finalOils = list;
+    added = list.length;
+  } else {
+    // Merge mode: Match by name (case-insensitive) or ID
+    const map = new Map<string, OilItem>();
+    currentOils.forEach((o) => map.set(o.name.trim().toLowerCase(), o));
+    finalOils = [...currentOils];
+
+    newItems.forEach((item, idx) => {
+      const key = (item.name || '').trim().toLowerCase();
+      const existing = (item.id && finalOils.find((o) => o.id === item.id)) || (key ? map.get(key) : undefined);
+
+      if (existing) {
+        const updatedItem: OilItem = {
+          ...existing,
+          ...item,
+          brand: item.brand || existing.brand,
+          viscosity: item.viscosity || existing.viscosity,
+          currentStock: item.currentStock !== undefined ? Number(item.currentStock) : existing.currentStock,
+          totalUsed: item.totalUsed !== undefined ? Number(item.totalUsed) : existing.totalUsed,
+          totalReceived: item.totalReceived !== undefined ? Number(item.totalReceived) : existing.totalReceived,
+          minStockThreshold:
+            item.minStockThreshold !== undefined ? Number(item.minStockThreshold) : existing.minStockThreshold,
+          notes: item.notes !== undefined ? item.notes : existing.notes,
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        const index = finalOils.findIndex((o) => o.id === existing.id);
+        if (index !== -1) {
+          finalOils[index] = updatedItem;
+        }
+        updated++;
+      } else {
+        const newItem: OilItem = {
+          id: item.id || `oil_imp_${Date.now()}_${idx + 1}`,
+          name: (item.name || '').trim(),
+          brand: (item.brand || '-').trim(),
+          viscosity: (item.viscosity || '-').trim(),
+          oilType: item.oilType || 'สังเคราะห์',
+          currentStock: Number(item.currentStock) || 0,
+          totalUsed: Number(item.totalUsed) || 0,
+          totalReceived:
+            Number(item.totalReceived) || (Number(item.currentStock) || 0) + (Number(item.totalUsed) || 0),
+          minStockThreshold: Number(item.minStockThreshold) || 20,
+          unit: item.unit || 'ลิตร',
+          notes: item.notes || '',
+          updatedAt: now,
+          updatedBy: userName || 'ผู้ดูแลระบบ',
+        };
+        finalOils.push(newItem);
+        if (key) map.set(key, newItem);
+        added++;
+      }
+    });
+  }
+
+  notifyOilListeners(finalOils);
+
+  runInBackground(async () => {
+    const batchSize = 400;
+    for (let i = 0; i < finalOils.length; i += batchSize) {
+      const chunk = finalOils.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+      for (const item of chunk) {
+        const ref = doc(collection(db, OILS_COLLECTION), item.id);
+        batch.set(ref, cleanForFirestore(item));
+      }
+      await batch.commit();
+    }
+  });
+
+  return { added, updated, total: finalOils.length };
+};
+
+// Batch import / restore transactions (ประวัติเบิกจ่ายและรับเข้า)
+export const batchRestoreTransactions = async (
+  newTxs: Partial<StockTransaction>[],
+  mode: 'merge' | 'replace',
+  userName: string
+): Promise<{ added: number; updated: number; total: number }> => {
+  const now = new Date().toISOString();
+  const currentTxs = getLocalTransactions();
+  let finalTxs: StockTransaction[] = [];
+  let added = 0;
+  let updated = 0;
+
+  if (mode === 'replace') {
+    const list: StockTransaction[] = newTxs.map((tx, idx) => ({
+      id: tx.id || `tx_imp_${Date.now()}_${idx + 1}`,
+      oilId: tx.oilId || 'oil_custom',
+      oilName: (tx.oilName || '').trim(),
+      viscosity: (tx.viscosity || '-').trim(),
+      type: tx.type === 'receive' ? 'receive' : 'dispense',
+      amount: Number(tx.amount) || 0,
+      stockBefore: Number(tx.stockBefore) || 0,
+      stockAfter: Number(tx.stockAfter) || 0,
+      recipientOrVehicle: tx.recipientOrVehicle || '-',
+      currentMileage: tx.currentMileage !== undefined ? Number(tx.currentMileage) : undefined,
+      performedBy: tx.performedBy || userName || 'ผู้ดูแลระบบ',
+      referenceNote: tx.referenceNote || '',
+      date: tx.date || now,
+      createdAt: tx.date ? new Date(tx.date).toISOString() : now,
+    }));
+    finalTxs = list;
+    added = list.length;
+  } else {
+    // Merge mode: Match by id if present, otherwise append
+    finalTxs = [...currentTxs];
+
+    newTxs.forEach((tx, idx) => {
+      const existing = tx.id ? finalTxs.find((item) => item.id === tx.id) : undefined;
+      if (existing) {
+        const updatedTx: StockTransaction = {
+          ...existing,
+          ...tx,
+          amount: tx.amount !== undefined ? Number(tx.amount) : existing.amount,
+          stockBefore: tx.stockBefore !== undefined ? Number(tx.stockBefore) : existing.stockBefore,
+          stockAfter: tx.stockAfter !== undefined ? Number(tx.stockAfter) : existing.stockAfter,
+          recipientOrVehicle: tx.recipientOrVehicle || existing.recipientOrVehicle,
+          performedBy: tx.performedBy || existing.performedBy,
+          referenceNote: tx.referenceNote !== undefined ? tx.referenceNote : existing.referenceNote,
+        };
+        const index = finalTxs.findIndex((item) => item.id === existing.id);
+        if (index !== -1) {
+          finalTxs[index] = updatedTx;
+        }
+        updated++;
+      } else {
+        const newRecord: StockTransaction = {
+          id: tx.id || `tx_imp_${Date.now()}_${idx + 1}`,
+          oilId: tx.oilId || 'oil_custom',
+          oilName: (tx.oilName || '').trim(),
+          viscosity: (tx.viscosity || '-').trim(),
+          type: tx.type === 'receive' ? 'receive' : 'dispense',
+          amount: Number(tx.amount) || 0,
+          stockBefore: Number(tx.stockBefore) || 0,
+          stockAfter: Number(tx.stockAfter) || 0,
+          recipientOrVehicle: tx.recipientOrVehicle || '-',
+          currentMileage: tx.currentMileage !== undefined ? Number(tx.currentMileage) : undefined,
+          performedBy: tx.performedBy || userName || 'ผู้ดูแลระบบ',
+          referenceNote: tx.referenceNote || '',
+          date: tx.date || now,
+          createdAt: tx.date ? new Date(tx.date).toISOString() : now,
+        };
+        finalTxs.unshift(newRecord);
+        added++;
+      }
+    });
+  }
+
+  notifyTxListeners(finalTxs);
+
+  runInBackground(async () => {
+    const batchSize = 400;
+    for (let i = 0; i < finalTxs.length; i += batchSize) {
+      const chunk = finalTxs.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+      for (const item of chunk) {
+        const ref = doc(collection(db, TRANSACTIONS_COLLECTION), item.id);
+        batch.set(ref, cleanForFirestore(item));
+      }
+      await batch.commit();
+    }
+  });
+
+  return { added, updated, total: finalTxs.length };
+};
+

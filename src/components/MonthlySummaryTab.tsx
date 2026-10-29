@@ -6,6 +6,7 @@ import {
   Droplets,
   Printer,
   Download,
+  Upload,
   Building2,
   TrendingDown,
   BarChart3,
@@ -18,9 +19,21 @@ import {
   CheckCircle2,
   X
 } from 'lucide-react';
-import { deleteTransactionsForVehicleInMonth } from '../services/stockService';
-import { deleteAdBlueRefillsForVehicleInMonth } from '../services/adblueService';
+import {
+  deleteTransactionsForVehicleInMonth,
+  batchRestoreTransactions
+} from '../services/stockService';
+import {
+  deleteAdBlueRefillsForVehicleInMonth,
+  batchRestoreAdBlue
+} from '../services/adblueService';
+import {
+  exportMonthlySummaryToCsv,
+  downloadMonthlySummaryTemplateCsv,
+  parseMonthlySummaryFromRows
+} from '../services/csvService';
 import { MonthlyPrintModal } from './MonthlyPrintModal';
+import { CsvDataModal } from './CsvDataModal';
 
 interface MonthlySummaryTabProps {
   oils: OilItem[];
@@ -50,6 +63,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
   );
   const [factoryFilter, setFactoryFilter] = useState<string>('all');
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
 
   // Deletion modal state for vehicle usage in this month
   const [vehicleToDeleteUsage, setVehicleToDeleteUsage] = useState<{
@@ -338,6 +352,94 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     XLSX.writeFile(wb, `รายงานสรุปการใช้น้ำมันเครื่องและAdBlue_${selectedYear}.xlsx`);
   };
 
+  const handleExportCsv = () => {
+    const summaryRows = vehicleList.map((v) => {
+      const veh = vehicles.find((item) => item.licensePlate === v.licensePlate);
+      return {
+        month: selectedMonth,
+        licensePlate: v.licensePlate,
+        factory: v.factory,
+        engineOilCount: v.engineOilCount,
+        engineOilLiters: v.engineOilLiters,
+        adBlueCount: v.adBlueCount,
+        adBlueLiters: v.adBlueLiters,
+        totalLiters: Math.round((v.engineOilLiters + v.adBlueLiters) * 10) / 10,
+        latestMileage: veh?.currentMileage || 0,
+      };
+    });
+    exportMonthlySummaryToCsv(
+      summaryRows,
+      `เดือน_${currentMonthData.monthName}_${selectedYear + 543}`
+    );
+  };
+
+  const handleExecuteMonthlyImport = async (
+    data: any[],
+    mode: 'merge' | 'replace'
+  ): Promise<{ added: number; updated: number; total: number }> => {
+    if (mode === 'replace') {
+      const monthsInvolved = Array.from(new Set(data.map((d) => d.month).filter(Boolean)));
+      for (const m of monthsInvolved) {
+        for (const v of vehicles) {
+          await deleteTransactionsForVehicleInMonth(v.licensePlate, m, userName);
+          await deleteAdBlueRefillsForVehicleInMonth(v.licensePlate, m, userName);
+        }
+      }
+    }
+
+    const txsToCreate: Partial<StockTransaction>[] = [];
+    const adBlueToCreate: Partial<AdBlueRefillRecord>[] = [];
+
+    data.forEach((row, idx) => {
+      const month = row.month || selectedMonth;
+      const dateStr = `${month}-15T12:00:00.000Z`;
+
+      if (row.engineOilLiters > 0) {
+        txsToCreate.push({
+          id: `tx_imp_month_${Date.now()}_${idx}`,
+          oilId: 'oil_imported',
+          oilName: 'น้ำมันเครื่อง (นำเข้าจากสรุปรายเดือน)',
+          viscosity: 'ตามรอบ',
+          type: 'dispense',
+          amount: Number(row.engineOilLiters) || 0,
+          recipientOrVehicle: `${row.licensePlate} (${row.factory || 'โรงงาน'})`,
+          currentMileage: Number(row.latestMileage) || undefined,
+          performedBy: userName || 'ผู้ดูแลระบบ',
+          referenceNote: `[สรุปประจำเดือน ${month}] เบิกใช้งาน ${row.engineOilLiters} ลิตร ${row.notes ? `(${row.notes})` : ''}`,
+          date: dateStr,
+        });
+      }
+
+      if (row.adBlueLiters > 0) {
+        adBlueToCreate.push({
+          id: `adblue_imp_month_${Date.now()}_${idx}`,
+          date: dateStr,
+          licensePlate: row.licensePlate,
+          factory: row.factory || 'โรงงาน 1',
+          percentBefore: 20,
+          percentAfter: 100,
+          litersFilled: Number(row.adBlueLiters) || 0,
+          currentMileage: Number(row.latestMileage) || 0,
+          filledBy: userName || 'ช่างประจำคลัง',
+          deductedFromStock: true,
+          notes: `[สรุปประจำเดือน ${month}] เติมน้ำยา AdBlue ${row.adBlueLiters} ลิตร ${row.notes ? `(${row.notes})` : ''}`,
+        });
+      }
+    });
+
+    let totalAdded = 0;
+    if (txsToCreate.length > 0) {
+      const rTx = await batchRestoreTransactions(txsToCreate, 'merge', userName);
+      totalAdded += rTx.added;
+    }
+    if (adBlueToCreate.length > 0) {
+      const rAd = await batchRestoreAdBlue(adBlueToCreate, 'merge', userName);
+      totalAdded += rAd.added;
+    }
+
+    return { added: totalAdded, updated: 0, total: totalAdded };
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast Feedback */}
@@ -367,7 +469,7 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
             สรุปการใช้น้ำมันเครื่อง & น้ำยาแอดบลู ทุกเดือน
           </h2>
           <p className="text-slate-300 text-xs sm:text-sm mt-1">
-            เปรียบเทียบการเบิกจ่ายน้ำมันเครื่องและการเติมน้ำยาบำบัดไอเสีย AdBlue ของทุกเดือน พร้อมส่งออก Excel และสั่งพิมพ์รายงาน
+            เปรียบเทียบการเบิกจ่ายน้ำมันเครื่องและการเติมน้ำยาบำบัดไอเสีย AdBlue ของทุกเดือน พร้อมส่งออก Excel/CSV และกู้คืนข้อมูล
           </p>
         </div>
 
@@ -409,20 +511,42 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
           <button
             type="button"
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>สั่งพิมพ์รายงาน (Print)</span>
+            <span>สั่งพิมพ์</span>
+          </button>
+
+          {/* Export CSV Button */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
+            title="ส่งออกสรุปรายเดือนเป็นไฟล์ CSV (UTF-8 พร้อมเปิดใน Excel)"
+          >
+            <Download className="w-4 h-4 text-emerald-400" />
+            <span>ส่งออก CSV</span>
+          </button>
+
+          {/* Import CSV / Restore Button */}
+          <button
+            type="button"
+            onClick={() => setIsCsvModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600/80 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition cursor-pointer border border-emerald-400/30"
+            title="นำเข้าไฟล์ CSV หรือกู้คืนข้อมูลสรุปการใช้รายเดือน"
+          >
+            <Upload className="w-4 h-4" />
+            <span>นำเข้า CSV / กู้คืน</span>
           </button>
 
           {/* Export Excel Button */}
           <button
             type="button"
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white font-medium rounded-xl text-xs sm:text-sm transition cursor-pointer border border-white/20"
           >
             <Download className="w-4 h-4" />
-            <span>Excel (.xlsx)</span>
+            <span>Excel</span>
           </button>
         </div>
       </div>
@@ -891,6 +1015,25 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
         annualAdBlueLiters={annualAdBlueLiters}
         annualTotalLiters={annualTotalLiters}
         userName={userName}
+      />
+
+      {/* CSV Export & Import / Restore Modal for Monthly Summary */}
+      <CsvDataModal
+        isOpen={isCsvModalOpen}
+        onClose={() => setIsCsvModalOpen(false)}
+        title="ส่งออก / นำเข้า CSV & กู้คืน: สรุปการใช้รายเดือน"
+        subtitle="บันทึกและกู้คืนปริมาณการใช้น้ำมันเครื่องและ AdBlue รายคันของแต่ละเดือน"
+        domainName="สรุปการใช้รายเดือน"
+        isAdmin={isAdmin}
+        currentUserName={userName}
+        onExportCurrentCsv={handleExportCsv}
+        onDownloadTemplateCsv={downloadMonthlySummaryTemplateCsv}
+        parseRows={parseMonthlySummaryFromRows}
+        onExecuteImport={handleExecuteMonthlyImport}
+        onSuccessNotification={(msg) => {
+          setSuccessToast(msg);
+          setTimeout(() => setSuccessToast(null), 4000);
+        }}
       />
     </div>
   );

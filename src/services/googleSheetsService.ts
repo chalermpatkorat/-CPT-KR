@@ -268,6 +268,11 @@ export const syncAllDataToGoogleSheets = async (params: {
       }));
       spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
     } else {
+      const checkErr = await checkRes.json().catch(() => ({}));
+      const checkMsg = checkErr?.error?.message || checkRes.statusText;
+      if (checkMsg.includes('Google Sheets API has not been used') || checkMsg.includes('disabled') || checkMsg.includes('293294422668')) {
+        throw new Error(`Google Sheets API ยังไม่ได้เปิดใช้งานใน Google Cloud Project (293294422668): ${checkMsg}`);
+      }
       // Spreadsheet does not exist or user lost access -> reset to create a new one
       console.warn(`Spreadsheet ${spreadsheetId} not accessible (${checkRes.status}). Creating a new one.`);
       spreadsheetId = null;
@@ -295,7 +300,11 @@ export const syncAllDataToGoogleSheets = async (params: {
 
     if (!createRes.ok) {
       const err = await createRes.json().catch(() => ({}));
-      throw new Error(`ไม่สามารถสร้าง Google Sheets ได้: ${err?.error?.message || createRes.statusText}`);
+      const msg = err?.error?.message || createRes.statusText;
+      if (msg.includes('Google Sheets API has not been used') || msg.includes('disabled') || msg.includes('293294422668')) {
+        throw new Error(`Google Sheets API ยังไม่ได้เปิดใช้งานใน Google Cloud Project (293294422668): ${msg}`);
+      }
+      throw new Error(`ไม่สามารถสร้าง Google Sheets ได้: ${msg}`);
     }
 
     const created = await createRes.json();
@@ -672,7 +681,11 @@ export const syncAllDataToGoogleSheets = async (params: {
 
   if (!updateRes.ok) {
     const errData = await updateRes.json().catch(() => ({}));
-    throw new Error(`ไม่สามารถอัปเดตข้อมูลลง Google Sheets: ${errData?.error?.message || updateRes.statusText}`);
+    const updateMsg = errData?.error?.message || updateRes.statusText;
+    if (updateMsg.includes('Google Sheets API has not been used') || updateMsg.includes('disabled') || updateMsg.includes('293294422668')) {
+      throw new Error(`Google Sheets API ยังไม่ได้เปิดใช้งานใน Google Cloud Project (293294422668): ${updateMsg}`);
+    }
+    throw new Error(`ไม่สามารถอัปเดตข้อมูลลง Google Sheets: ${updateMsg}`);
   }
 
   // 6. Save successful configuration locally and in Firestore

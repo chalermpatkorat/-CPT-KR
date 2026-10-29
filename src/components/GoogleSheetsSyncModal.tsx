@@ -14,7 +14,8 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  Link2
+  Link2,
+  Download
 } from 'lucide-react';
 import {
   GoogleSheetsConfig,
@@ -25,6 +26,7 @@ import {
   extractSpreadsheetId,
   SHEET_NAMES
 } from '../services/googleSheetsService';
+import { exportAll5SheetsToExcel } from '../services/excelService';
 import { OilItem, StockTransaction, Vehicle, AdBlueRefillRecord } from '../types';
 import { signInWithGoogle, hasValidGoogleToken, AppUserSession } from '../lib/firebase';
 
@@ -246,21 +248,105 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
             </div>
           )}
 
-          {/* Error Banner */}
+          {/* Error Banner / API Guidance */}
           {errorMessage && (
-            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleConnectGoogle}
-                className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 transition shrink-0 cursor-pointer"
-              >
-                เข้าสู่ระบบ Google ใหม่
-              </button>
-            </div>
+            <>
+              {errorMessage.includes('sheets.googleapis.com') ||
+              errorMessage.includes('Google Sheets API has not been used') ||
+              errorMessage.includes('disabled') ||
+              errorMessage.includes('293294422668') ? (
+                <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-400 rounded-2xl text-amber-950 space-y-3.5 shadow-sm animate-in fade-in">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 bg-amber-200/90 rounded-xl text-amber-900 shrink-0 mt-0.5 shadow-2xs">
+                      <AlertTriangle className="w-5 h-5 text-amber-800" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
+                        <span>ต้องเปิดใช้งาน Google Sheets API ใน Google Cloud ก่อน</span>
+                        <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md text-[10px] font-black uppercase">
+                          ทำเพียงครั้งเดียว 1 นาที
+                        </span>
+                      </h4>
+                      <p className="text-xs text-amber-900/90 leading-relaxed">
+                        เนื่องจากโปรเจกต์ Google Cloud ของบริษัท (รหัส: <code className="bg-amber-200/60 px-1.5 py-0.5 rounded font-mono font-bold text-amber-950">293294422668</code> หรือ <code className="bg-amber-200/60 px-1.5 py-0.5 rounded font-mono font-bold text-amber-950">engine-oil---adblue-cptkorat</code>) ยังไม่ได้กดเปิดใช้งานบริการ Google Sheets API ทาง Google จึงบล็อกการเขียนข้อมูลอัตโนมัติ
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 3-Step Guide */}
+                  <div className="bg-white/90 p-4 rounded-xl border border-amber-300 space-y-3">
+                    <p className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[11px] font-black">
+                        ✓
+                      </span>
+                      วิธีเปิดใช้งานใน 3 ขั้นตอนง่ายๆ:
+                    </p>
+                    <ol className="text-xs text-slate-700 space-y-2 list-decimal pl-5 leading-relaxed">
+                      <li>
+                        คลิกปุ่มสีน้ำเงินด้านล่างเพื่อเปิดหน้า <strong>Google Cloud Console</strong> โดยตรง (ลงชื่อเข้าใช้ด้วยบัญชีเจ้าของโปรเจกต์หรือ <strong className="text-indigo-700">chalermpat.korat1499@gmail.com</strong>)
+                      </li>
+                      <li>
+                        ในหน้าต่าง Google Cloud ให้กดปุ่มสีน้ำเงินคำว่า <strong className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-300 font-bold">"ENABLE"</strong> หรือ <strong className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-300 font-bold">"เปิดใช้งาน"</strong>
+                      </li>
+                      <li>
+                        รอประมาณ 1 - 2 นาที เพื่อให้ระบบ Google อัปเดตสิทธิ์ จากนั้นกลับมากดปุ่ม <strong className="text-emerald-700">"ซิงค์ข้อมูลทั้งหมดเดี๋ยวนี้ (Sync Now)"</strong> ข้อมูลทั้ง 5 ชีตจะถูกสร้างและเขียนลง Google Sheets ทันที!
+                      </li>
+                    </ol>
+
+                    <div className="pt-2 flex flex-wrap items-center gap-2">
+                      <a
+                        href="https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=engine-oil---adblue-cptkorat"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>1. คลิกเปิดใช้งาน Google Sheets API (ลิงก์ตรง)</span>
+                      </a>
+
+                      <a
+                        href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=engine-oil---adblue-cptkorat"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>2. คลิกเปิด Google Drive API (สำรอง)</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Fallback instant export button */}
+                  <div className="pt-1 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-t border-amber-200">
+                    <span className="text-[11px] text-amber-900 font-medium">
+                      ต้องการนำข้อมูลไปเปิดใน Google Sheets ทันทีระหว่างรอเปิด API?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => exportAll5SheetsToExcel({ oils, transactions, vehicles, adBlueRefills })}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-2xs cursor-pointer shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ดาวน์โหลดไฟล์ Excel (.xlsx) ครบ 5 ชีตทันที</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{errorMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleConnectGoogle}
+                    className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 transition shrink-0 cursor-pointer"
+                  >
+                    เข้าสู่ระบบ Google ใหม่
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
           {/* Google Account Connection Status */}

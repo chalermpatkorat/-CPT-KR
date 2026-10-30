@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { OilItem, StockTransaction, Vehicle, AdBlueRefillRecord } from '../types';
 import { calculateVehicleCycle, formatThaiDate } from './vehicleService';
+import { calculateAllMonthsVehicleUsage } from '../utils/monthlyUsageHelper';
 
 /**
  * Export all 5 domains into a single .xlsx Excel workbook
@@ -140,93 +141,24 @@ export const exportAll5SheetsToExcel = (params: {
   XLSX.utils.book_append_sheet(wb, wsAdBlue, 'ประวัติเติม AdBlue');
 
   // Sheet 5: สรุปการใช้รายเดือน
-  const monthlyAggMap = new Map<string, {
-    month: string;
-    licensePlate: string;
-    factory: string;
-    oilCount: number;
-    oilLiters: number;
-    adBlueCount: number;
-    adBlueLiters: number;
-    latestMileage: number;
-  }>();
-
-  transactions
-    .filter((tx) => tx.type === 'dispense')
-    .forEach((tx) => {
-      const month = (tx.date || tx.createdAt || '').slice(0, 7) || 'ไม่ระบุ';
-      const plate = (tx.recipientOrVehicle || '-').trim();
-      const key = `${month}_${plate}`;
-      const isAdBlue = (tx.oilName || '').toLowerCase().includes('adblue') || (tx.viscosity || '').toLowerCase().includes('adblue');
-
-      if (!monthlyAggMap.has(key)) {
-        monthlyAggMap.set(key, {
-          month,
-          licensePlate: plate,
-          factory: '-',
-          oilCount: 0,
-          oilLiters: 0,
-          adBlueCount: 0,
-          adBlueLiters: 0,
-          latestMileage: tx.currentMileage || 0,
-        });
-      }
-
-      const rec = monthlyAggMap.get(key)!;
-      if (isAdBlue) {
-        rec.adBlueCount += 1;
-        rec.adBlueLiters += Number(tx.amount) || 0;
-      } else {
-        rec.oilCount += 1;
-        rec.oilLiters += Number(tx.amount) || 0;
-      }
-      if (tx.currentMileage && tx.currentMileage > rec.latestMileage) {
-        rec.latestMileage = tx.currentMileage;
-      }
-    });
-
-  adBlueRefills.forEach((r) => {
-    const month = (r.date || r.createdAt || '').slice(0, 7) || 'ไม่ระบุ';
-    const plate = (r.licensePlate || '-').trim();
-    const key = `${month}_${plate}`;
-
-    if (!monthlyAggMap.has(key)) {
-      monthlyAggMap.set(key, {
-        month,
-        licensePlate: plate,
-        factory: r.factory || '-',
-        oilCount: 0,
-        oilLiters: 0,
-        adBlueCount: 0,
-        adBlueLiters: 0,
-        latestMileage: r.currentMileage || 0,
-      });
-    }
-
-    const rec = monthlyAggMap.get(key)!;
-    if (rec.adBlueLiters === 0) {
-      rec.adBlueCount += 1;
-      rec.adBlueLiters += Number(r.litersFilled) || 0;
-    }
-    if (r.currentMileage && r.currentMileage > rec.latestMileage) {
-      rec.latestMileage = r.currentMileage;
-    }
+  const allMonthlyUsage = calculateAllMonthsVehicleUsage({
+    vehicles,
+    transactions,
+    adBlueRefills,
   });
 
-  const monthlyData = Array.from(monthlyAggMap.values())
-    .sort((a, b) => b.month.localeCompare(a.month) || a.licensePlate.localeCompare(b.licensePlate))
-    .map((m, index) => ({
-      'ลำดับ': index + 1,
-      'เดือน (ปี-เดือน)': m.month,
-      'ทะเบียนรถ': m.licensePlate,
-      'โรงงาน': m.factory,
-      'จำนวนครั้งเบิกน้ำมัน': m.oilCount,
-      'ปริมาณน้ำมัน (ลิตร)': Math.round(m.oilLiters * 10) / 10,
-      'จำนวนครั้งเติม AdBlue': m.adBlueCount,
-      'ปริมาณ AdBlue (ลิตร)': Math.round(m.adBlueLiters * 10) / 10,
-      'รวมของเหลวทั้งหมด (ลิตร)': Math.round((m.oilLiters + m.adBlueLiters) * 10) / 10,
-      'เลขไมล์ล่าสุด (กม.)': m.latestMileage ? m.latestMileage.toLocaleString('th-TH') : '-',
-    }));
+  const monthlyData = allMonthlyUsage.map((m, index) => ({
+    'ลำดับ': index + 1,
+    'เดือน (ปี-เดือน)': m.month,
+    'ทะเบียนรถ': m.licensePlate,
+    'โรงงาน': m.factory,
+    'จำนวนครั้งเบิกน้ำมัน': m.engineOilCount,
+    'ปริมาณน้ำมัน (ลิตร)': m.engineOilLiters,
+    'จำนวนครั้งเติม AdBlue': m.adBlueCount,
+    'ปริมาณ AdBlue (ลิตร)': m.adBlueLiters,
+    'รวมของเหลวทั้งหมด (ลิตร)': m.totalLiters,
+    'เลขไมล์ล่าสุด (กม.)': m.latestMileage ? m.latestMileage.toLocaleString('th-TH') : '-',
+  }));
 
   const wsMonthly = XLSX.utils.json_to_sheet(monthlyData);
   wsMonthly['!cols'] = [

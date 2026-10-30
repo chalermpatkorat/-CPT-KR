@@ -7,6 +7,7 @@ import {
   db
 } from '../lib/firebase';
 import { calculateVehicleCycle, formatThaiDate } from './vehicleService';
+import { calculateAllMonthsVehicleUsage } from '../utils/monthlyUsageHelper';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export interface SyncToSheetsResult {
@@ -518,110 +519,25 @@ export const syncAllDataToGoogleSheets = async (params: {
     'เลขไมล์ล่าสุด (กม.)',
   ];
 
-  // Helper to test if a transaction is AdBlue or Engine Oil
-  const isAdBlueTx = (tx: StockTransaction) => {
-    const text = `${tx.oilName} ${tx.viscosity} ${tx.referenceNote || ''}`.toLowerCase();
-    return text.includes('adblue') || text.includes('แอดบลู') || text.includes('def');
-  };
-
-  // Group by (Month + LicensePlate)
-  const monthlyAggMap = new Map<
-    string,
-    {
-      month: string;
-      licensePlate: string;
-      factory: string;
-      oilCount: number;
-      oilLiters: number;
-      adBlueCount: number;
-      adBlueLiters: number;
-      latestMileage: number;
-    }
-  >();
-
-  // Add from transactions
-  transactions
-    .filter((tx) => tx.type === 'dispense')
-    .forEach((tx) => {
-      const month = (tx.date || tx.createdAt || '').slice(0, 7);
-      if (!month) return;
-      const plate =
-        vehicles.find((v) => tx.recipientOrVehicle?.includes(v.licensePlate))?.licensePlate ||
-        (tx.recipientOrVehicle ? tx.recipientOrVehicle.split(' ')[0] : 'อื่นๆ');
-      const key = `${month}_${plate}`;
-      const fac = vehicles.find((v) => v.licensePlate === plate)?.factory || 'ไม่ระบุ';
-      const isAd = isAdBlueTx(tx);
-
-      if (!monthlyAggMap.has(key)) {
-        monthlyAggMap.set(key, {
-          month,
-          licensePlate: plate,
-          factory: fac,
-          oilCount: 0,
-          oilLiters: 0,
-          adBlueCount: 0,
-          adBlueLiters: 0,
-          latestMileage: tx.currentMileage || 0,
-        });
-      }
-
-      const rec = monthlyAggMap.get(key)!;
-      if (isAd) {
-        rec.adBlueCount += 1;
-        rec.adBlueLiters += Number(tx.amount) || 0;
-      } else {
-        rec.oilCount += 1;
-        rec.oilLiters += Number(tx.amount) || 0;
-      }
-      if (tx.currentMileage && tx.currentMileage > rec.latestMileage) {
-        rec.latestMileage = tx.currentMileage;
-      }
-    });
-
-  // Add from AdBlue refills (ensure no double counting if already present)
-  adBlueRefills.forEach((r) => {
-    const month = (r.date || r.createdAt || '').slice(0, 7);
-    if (!month) return;
-    const plate = r.licensePlate;
-    const key = `${month}_${plate}`;
-
-    if (!monthlyAggMap.has(key)) {
-      monthlyAggMap.set(key, {
-        month,
-        licensePlate: plate,
-        factory: r.factory,
-        oilCount: 0,
-        oilLiters: 0,
-        adBlueCount: 0,
-        adBlueLiters: 0,
-        latestMileage: r.currentMileage || 0,
-      });
-    }
-
-    const rec = monthlyAggMap.get(key)!;
-    if (rec.adBlueLiters === 0) {
-      rec.adBlueCount += 1;
-      rec.adBlueLiters += Number(r.litersFilled) || 0;
-    }
-    if (r.currentMileage && r.currentMileage > rec.latestMileage) {
-      rec.latestMileage = r.currentMileage;
-    }
+  // 5. Build Sheet 5 data using unified robust reconciliation logic
+  const allMonthlyUsage = calculateAllMonthsVehicleUsage({
+    vehicles,
+    transactions,
+    adBlueRefills,
   });
 
-  const monthlyRows = Array.from(monthlyAggMap.values())
-    .sort((a, b) => b.month.localeCompare(a.month) || a.licensePlate.localeCompare(b.licensePlate))
-    .map((m, index) => [
-      index + 1,
-      m.month,
-      m.licensePlate,
-      m.factory,
-      m.oilCount,
-      Math.round(m.oilLiters * 10) / 10,
-      m.adBlueCount,
-      Math.round(m.adBlueLiters * 10) / 10,
-      Math.round((m.oilLiters + m.adBlueLiters) * 10) / 10,
-      m.latestMileage ? m.latestMileage.toLocaleString('th-TH') : '-',
-    ]);
+  const monthlyRows = allMonthlyUsage.map((m, index) => [
+    index + 1,
+    m.month,
+    m.licensePlate,
+    m.factory,
+    m.engineOilCount,
+    m.engineOilLiters,
+    m.adBlueCount,
+    m.adBlueLiters,
+    m.totalLiters,
+    m.latestMileage ? m.latestMileage.toLocaleString('th-TH') : '-',
+  ]);
 
   // 4. Clear old data from sheets to ensure no stale trailing rows linger
   const clearRes = await authFetch(

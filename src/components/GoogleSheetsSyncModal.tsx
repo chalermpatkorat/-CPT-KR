@@ -295,23 +295,23 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
                     <div className="pt-2 flex flex-wrap items-center gap-2">
                       <a
-                        href="https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=engine-oil---adblue-cptkorat"
+                        href="https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=293294422668"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
                       >
                         <ExternalLink className="w-4 h-4" />
-                        <span>1. คลิกเปิดใช้งาน Google Sheets API (ลิงก์ตรง)</span>
+                        <span>1. คลิกเปิดใช้งาน Google Sheets API ทันที (Project 293294422668)</span>
                       </a>
 
                       <a
-                        href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=engine-oil---adblue-cptkorat"
+                        href="https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=engine-oil---adblue-cptkorat"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-semibold rounded-xl transition cursor-pointer"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
-                        <span>2. คลิกเปิด Google Drive API (สำรอง)</span>
+                        <span>2. ลิงก์สำรอง (Cloud Console)</span>
                       </a>
                     </div>
                   </div>

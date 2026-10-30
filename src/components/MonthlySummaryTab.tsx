@@ -17,8 +17,19 @@ import {
   Trash2,
   AlertTriangle,
   CheckCircle2,
-  X
+  X,
+  Search,
+  Check
 } from 'lucide-react';
+import {
+  calculateVehicleMonthlyUsage,
+  calculate12MonthsSummary,
+  VehicleMonthlyUsageRecord,
+  MonthSummaryItem,
+  THAI_MONTH_NAMES,
+  findMatchingVehicle,
+  isAdBlueTransaction
+} from '../utils/monthlyUsageHelper';
 import {
   deleteTransactionsForVehicleInMonth,
   batchRestoreTransactions
@@ -62,6 +73,8 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     `${currentYear}-${String(currentMonthNum).padStart(2, '0')}`
   );
   const [factoryFilter, setFactoryFilter] = useState<string>('all');
+  const [vehicleSearchQuery, setVehicleSearchQuery] = useState<string>('');
+  const [showAllVehicles, setShowAllVehicles] = useState<boolean>(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
 
@@ -92,186 +105,62 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
     return new Set();
   });
 
-  const monthNamesThai = [
-    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-  ];
+  const monthNamesThai = THAI_MONTH_NAMES;
 
-  // Helper to test if a transaction is AdBlue or Engine Oil
-  const isAdBlueTransaction = (tx: StockTransaction) => {
-    const text = `${tx.oilName} ${tx.viscosity} ${tx.referenceNote || ''}`.toLowerCase();
-    return text.includes('adblue') || text.includes('แอดบลู') || text.includes('def');
-  };
-
-  // Helper to extract YYYY-MM from transaction or refill date
-  const getYearMonth = (dateStr: string) => {
-    try {
-      return dateStr.slice(0, 7);
-    } catch {
-      return '';
-    }
-  };
-
-  // Helper to check if a vehicle's monthly usage was cleared by user
-  const isVehicleMonthCleared = (plateOrRecipient: string, monthKey: string) => {
-    const clean = (plateOrRecipient || '').trim().toLowerCase();
-    if (!clean) return false;
-    for (const key of clearedVehicleMonths) {
-      if (!key.startsWith(`${monthKey}_`)) continue;
-      const clearedPlate = key.replace(`${monthKey}_`, '');
-      if (
-        clearedPlate &&
-        (clean === clearedPlate ||
-          clean.includes(clearedPlate) ||
-          clearedPlate.includes(clean))
-      ) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  // 1. Calculate Monthly Breakdown for the selected Year (All 12 Months)
-  const monthsData = monthNamesThai.map((monthName, idx) => {
-    const monthKey = `${selectedYear}-${String(idx + 1).padStart(2, '0')}`;
-
-    // Dispense transactions in this month (exclude cleared vehicles if any cached)
-    const monthTxs = transactions.filter(
-      (tx) =>
-        tx.type === 'dispense' &&
-        getYearMonth(tx.date) === monthKey &&
-        !isVehicleMonthCleared(tx.recipientOrVehicle || '', monthKey)
-    );
-
-    // Engine oil dispenses (excluding AdBlue)
-    const engineOilTxs = monthTxs.filter((tx) => !isAdBlueTransaction(tx));
-    const engineOilLiters = engineOilTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-
-    // AdBlue refills in this month from adBlueRefills dataset
-    const monthAdBlueRefills = adBlueRefills.filter(
-      (r) =>
-        getYearMonth(r.date) === monthKey &&
-        !isVehicleMonthCleared(r.licensePlate || '', monthKey)
-    );
-    const adBlueRefillLiters = monthAdBlueRefills.reduce((sum, r) => sum + (r.litersFilled || 0), 0);
-
-    // Also check if any AdBlue dispenses in stock transactions not in adBlueRefills
-    const adBlueTxLiters = monthTxs
-      .filter((tx) => isAdBlueTransaction(tx))
-      .reduce((sum, tx) => sum + (tx.amount || 0), 0);
-
-    // Take max or combine to ensure complete reporting
-    const finalAdBlueLiters = Math.max(adBlueRefillLiters, adBlueTxLiters);
-
-    return {
-      monthKey,
-      monthName,
-      monthNumber: idx + 1,
-      engineOilLiters: Math.round(engineOilLiters * 10) / 10,
-      engineOilTxCount: engineOilTxs.length,
-      adBlueLiters: Math.round(finalAdBlueLiters * 10) / 10,
-      adBlueRefillCount: Math.max(monthAdBlueRefills.length, monthTxs.filter((tx) => isAdBlueTransaction(tx)).length),
-    };
+  // 1. Calculate 12 Months Summary (Strictly equals the sum of vehicles each month)
+  const monthsData: MonthSummaryItem[] = calculate12MonthsSummary({
+    vehicles,
+    transactions,
+    adBlueRefills,
+    selectedYear,
+    clearedVehicleMonths,
   });
 
   // Annual Totals
-  const annualEngineOilLiters = monthsData.reduce((sum, m) => sum + m.engineOilLiters, 0);
-  const annualAdBlueLiters = monthsData.reduce((sum, m) => sum + m.adBlueLiters, 0);
-  const annualTotalLiters = annualEngineOilLiters + annualAdBlueLiters;
+  const annualEngineOilLiters = Math.round(monthsData.reduce((sum, m) => sum + m.engineOilLiters, 0) * 10) / 10;
+  const annualAdBlueLiters = Math.round(monthsData.reduce((sum, m) => sum + m.adBlueLiters, 0) * 10) / 10;
+  const annualTotalLiters = Math.round((annualEngineOilLiters + annualAdBlueLiters) * 10) / 10;
 
   // 2. Data for the specifically selected Month
-  const currentMonthData = monthsData.find((m) => m.monthKey === selectedMonth) || {
+  const currentMonthData: MonthSummaryItem = monthsData.find((m) => m.monthKey === selectedMonth) || {
     monthKey: selectedMonth,
     monthName: monthNamesThai[parseInt(selectedMonth.slice(5, 7), 10) - 1] || selectedMonth,
+    monthNumber: parseInt(selectedMonth.slice(5, 7), 10) || 1,
     engineOilLiters: 0,
     engineOilTxCount: 0,
     adBlueLiters: 0,
     adBlueRefillCount: 0,
+    totalLiters: 0,
   };
 
-  // 3. Vehicle Usage Breakdown for the selected Month
-  const vehicleUsageMap: {
-    [licensePlate: string]: {
-      licensePlate: string;
-      factory: string;
-      engineOilLiters: number;
-      engineOilCount: number;
-      adBlueLiters: number;
-      adBlueCount: number;
-    };
-  } = {};
-
-  // Populate from vehicles list
-  vehicles.forEach((v) => {
-    vehicleUsageMap[v.licensePlate] = {
-      licensePlate: v.licensePlate,
-      factory: v.factory,
-      engineOilLiters: 0,
-      engineOilCount: 0,
-      adBlueLiters: 0,
-      adBlueCount: 0,
-    };
+  // 3. Vehicle Usage Breakdown for the selected Month (Reconciled with VehiclesTab & AdBlue records)
+  const allVehicleUsagesInMonth: VehicleMonthlyUsageRecord[] = calculateVehicleMonthlyUsage({
+    vehicles,
+    transactions,
+    adBlueRefills,
+    selectedMonth,
+    clearedVehicleMonths,
   });
 
-  // Add Engine oil dispenses for selected month
-  transactions
-    .filter((tx) => tx.type === 'dispense' && getYearMonth(tx.date) === selectedMonth)
-    .forEach((tx) => {
-      const isAdBlue = isAdBlueTransaction(tx);
-      // match plate in recipientOrVehicle
-      const plate = vehicles.find((v) => tx.recipientOrVehicle?.includes(v.licensePlate))?.licensePlate ||
-        (tx.recipientOrVehicle ? tx.recipientOrVehicle.split(' ')[0] : 'อื่นๆ');
+  // Count active vehicles in selected factory
+  const factoryVehicles = allVehicleUsagesInMonth.filter((item) =>
+    factoryFilter === 'all' || item.factory === factoryFilter
+  );
+  const activeVehiclesCount = factoryVehicles.filter((v) => v.engineOilLiters > 0 || v.adBlueLiters > 0).length;
+  const totalVehiclesInFactoryCount = factoryVehicles.length;
 
-      if (!vehicleUsageMap[plate]) {
-        vehicleUsageMap[plate] = {
-          licensePlate: plate,
-          factory: 'ไม่ระบุ',
-          engineOilLiters: 0,
-          engineOilCount: 0,
-          adBlueLiters: 0,
-          adBlueCount: 0,
-        };
-      }
-
-      if (isAdBlue) {
-        vehicleUsageMap[plate].adBlueLiters += tx.amount || 0;
-        vehicleUsageMap[plate].adBlueCount += 1;
-      } else {
-        vehicleUsageMap[plate].engineOilLiters += tx.amount || 0;
-        vehicleUsageMap[plate].engineOilCount += 1;
-      }
-    });
-
-  // Add AdBlue refills for selected month
-  adBlueRefills
-    .filter((r) => getYearMonth(r.date) === selectedMonth)
-    .forEach((r) => {
-      const plate = r.licensePlate;
-      if (!vehicleUsageMap[plate]) {
-        vehicleUsageMap[plate] = {
-          licensePlate: plate,
-          factory: r.factory,
-          engineOilLiters: 0,
-          engineOilCount: 0,
-          adBlueLiters: 0,
-          adBlueCount: 0,
-        };
-      }
-      // Avoid double counting if already added from transaction
-      if (vehicleUsageMap[plate].adBlueLiters === 0) {
-        vehicleUsageMap[plate].adBlueLiters += r.litersFilled || 0;
-        vehicleUsageMap[plate].adBlueCount += 1;
-      }
-    });
-
-  // Filter vehicle breakdown by factory and exclude cleared records
-  const vehicleList = Object.values(vehicleUsageMap)
+  // Filter vehicle breakdown by factory, search query, and usage status
+  const vehicleList: VehicleMonthlyUsageRecord[] = factoryVehicles
     .filter((item) => {
-      return !isVehicleMonthCleared(item.licensePlate, selectedMonth);
+      if (!vehicleSearchQuery.trim()) return true;
+      const q = vehicleSearchQuery.trim().toLowerCase().replace(/\s+/g, '');
+      const plate = (item.licensePlate || '').toLowerCase().replace(/\s+/g, '');
+      const factory = (item.factory || '').toLowerCase().replace(/\s+/g, '');
+      const route = (item.route || '').toLowerCase().replace(/\s+/g, '');
+      return plate.includes(q) || factory.includes(q) || route.includes(q);
     })
-    .filter((item) => factoryFilter === 'all' || item.factory === factoryFilter)
-    .filter((item) => item.engineOilLiters > 0 || item.adBlueLiters > 0)
-    .sort((a, b) => b.engineOilLiters + b.adBlueLiters - (a.engineOilLiters + a.adBlueLiters));
+    .filter((item) => (showAllVehicles ? true : item.engineOilLiters > 0 || item.adBlueLiters > 0))
+    .sort((a, b) => b.totalLiters - a.totalLiters || b.engineOilLiters - a.engineOilLiters || a.licensePlate.localeCompare(b.licensePlate));
 
   // Confirm delete vehicle usage for the selected month
   const handleConfirmDeleteVehicleUsage = async () => {
@@ -763,86 +652,171 @@ export const MonthlySummaryTab: React.FC<MonthlySummaryTabProps> = ({
 
       {/* SECTION 2: Vehicle Usage Breakdown for Selected Month */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden no-print">
-        <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-amber-600" />
-              <span>ยอดการใช้จำแนกตามรถ ประจำเดือน {currentMonthData.monthName}</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              ตรวจสอบและจัดการปริมาณน้ำมันเครื่องและ AdBlue ที่รถแต่ละคันเบิกใช้ในเดือนนี้ • สามารถลบประวัติการใช้รายคันได้
-            </p>
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-amber-600" />
+                  <span>ยอดการใช้จำแนกตามรถ ประจำเดือน {currentMonthData.monthName}</span>
+                </h3>
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md border border-emerald-300">
+                  ซิงค์ตรงกับ ประวัติถ่ายน้ำมันเครื่อง & AdBlue
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                พบรถที่มีการเบิก/เติมในเดือนนี้ <strong className="text-emerald-700">{activeVehiclesCount} คัน</strong> (จากทั้งหมด {totalVehiclesInFactoryCount} คัน) • ข้อมูลอัปเดตตรงตามประวัติถ่ายน้ำมันเครื่อง 4 โรงงานและประวัติเติม AdBlue
+              </p>
+            </div>
+
+            {/* Factory Selector */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-semibold text-slate-500">กรองโรงงาน:</span>
+              <select
+                value={factoryFilter}
+                onChange={(e) => setFactoryFilter(e.target.value)}
+                className="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl bg-white text-slate-800 outline-none cursor-pointer shadow-2xs"
+              >
+                <option value="all">ทุกโรงงาน ({vehicles.length} คัน)</option>
+                {Array.from(new Set(vehicles.map((v) => v.factory))).map((f) => (
+                  <option key={f} value={f}>
+                    {f} ({vehicles.filter((v) => v.factory === f).length} คัน)
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">กรองโรงงาน:</span>
-            <select
-              value={factoryFilter}
-              onChange={(e) => setFactoryFilter(e.target.value)}
-              className="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl bg-white text-slate-800 outline-none"
-            >
-              <option value="all">ทุกโรงงาน</option>
-              {Array.from(new Set(vehicles.map((v) => v.factory))).map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
+          {/* Search bar & Show All toggle */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1 border-t border-slate-100">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={vehicleSearchQuery}
+                onChange={(e) => setVehicleSearchQuery(e.target.value)}
+                placeholder="ค้นหาทะเบียนรถ, สายรถ หรือโรงงาน..."
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {vehicleSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setVehicleSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowAllVehicles(!showAllVehicles)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition cursor-pointer flex items-center gap-1.5 ${
+                  showAllVehicles
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>{showAllVehicles ? 'แสดงรถทั้งหมดในโรงงาน' : `เฉพาะรถที่มีการใช้ (${activeVehiclesCount} คัน)`}</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {vehicleList.length === 0 ? (
           <div className="p-8 text-center text-slate-500">
-            <p className="font-bold">ไม่มีรายการเบิกน้ำมันเครื่องหรือ AdBlue ในเดือน {currentMonthData.monthName}</p>
+            <p className="font-bold">
+              {vehicleSearchQuery
+                ? `ไม่พบข้อมูลรถที่ตรงกับคำค้นหา "${vehicleSearchQuery}"`
+                : `ไม่มีรายการเบิกน้ำมันเครื่องหรือเติม AdBlue ในเดือน ${currentMonthData.monthName}`}
+            </p>
+            {!showAllVehicles && totalVehiclesInFactoryCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllVehicles(true)}
+                className="mt-2 text-xs text-indigo-600 hover:underline font-bold cursor-pointer"
+              >
+                คลิกเพื่อดูรถทั้งหมดในโรงงาน ({totalVehiclesInFactoryCount} คัน)
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                  <th className="py-3 px-4 w-12 text-center">ลำดับ</th>
-                  <th className="py-3 px-3">ทะเบียนรถ</th>
+                  <th className="py-3 px-3 w-12 text-center">ลำดับ</th>
+                  <th className="py-3 px-3">ทะเบียนรถ / สาย</th>
                   <th className="py-3 px-3">โรงงาน</th>
                   <th className="py-3 px-3 text-right text-amber-700 bg-amber-50/40">น้ำมันเครื่อง (ลิตร)</th>
-                  <th className="py-3 px-3 text-center">จำนวนครั้ง</th>
+                  <th className="py-3 px-3 text-center">ครั้งที่เบิก</th>
                   <th className="py-3 px-3 text-right text-teal-700 bg-teal-50/40">น้ำยา AdBlue (ลิตร)</th>
-                  <th className="py-3 px-3 text-center">จำนวนครั้ง</th>
-                  <th className="py-3 px-4 text-right">รวมที่ใช้ (ลิตร)</th>
-                  <th className="py-3 px-4 text-center">จัดการ</th>
+                  <th className="py-3 px-3 text-center">ครั้งที่เติม</th>
+                  <th className="py-3 px-3 text-right">รวมที่ใช้ (ลิตร)</th>
+                  <th className="py-3 px-3 text-right">เลขไมล์ (กม.)</th>
+                  <th className="py-3 px-3 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {vehicleList.map((v, idx) => {
-                  const total = v.engineOilLiters + v.adBlueLiters;
+                  const total = v.totalLiters;
                   return (
                     <tr key={v.licensePlate} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="py-3 px-3 font-extrabold text-slate-900">{v.licensePlate}</td>
-                      <td className="py-3 px-3 font-medium text-slate-600">{v.factory}</td>
-                      <td className="py-3 px-3 text-right font-black text-amber-700 bg-amber-50/20">
+                      <td className="py-3 px-3 text-center font-bold text-slate-500">{idx + 1}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-extrabold text-slate-900">{v.licensePlate}</div>
+                        {v.route && (
+                          <div className="text-[11px] text-slate-500">สาย: {v.route}</div>
+                        )}
+                        {v.isFromVehicleCycleRecord && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                            บันทึกรอบ 20,000 กม.
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 font-medium text-slate-600">
+                        <span className="px-2 py-0.5 bg-slate-100 rounded-md font-semibold text-xs">
+                          {v.factory}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right font-black text-amber-700 bg-amber-50/20 whitespace-nowrap">
                         {v.engineOilLiters > 0 ? `${v.engineOilLiters.toLocaleString('th-TH')} ลิตร` : '-'}
                       </td>
                       <td className="py-3 px-3 text-center text-slate-600">
                         {v.engineOilCount > 0 ? `${v.engineOilCount} ครั้ง` : '-'}
                       </td>
-                      <td className="py-3 px-3 text-right font-black text-teal-700 bg-teal-50/20">
+                      <td className="py-3 px-3 text-right font-black text-teal-700 bg-teal-50/20 whitespace-nowrap">
                         {v.adBlueLiters > 0 ? `${v.adBlueLiters.toLocaleString('th-TH')} ลิตร` : '-'}
                       </td>
                       <td className="py-3 px-3 text-center text-slate-600">
                         {v.adBlueCount > 0 ? `${v.adBlueCount} ครั้ง` : '-'}
                       </td>
-                      <td className="py-3 px-4 text-right font-black text-slate-900">
+                      <td className="py-3 px-3 text-right font-black text-slate-900 whitespace-nowrap">
                         {total > 0 ? `${total.toLocaleString('th-TH')} ลิตร` : '-'}
                       </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <td className="py-3 px-3 text-right text-slate-700 font-mono text-xs whitespace-nowrap">
+                        {v.latestMileage ? `${v.latestMileage.toLocaleString('th-TH')} กม.` : '-'}
+                      </td>
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => {
-                            setVehicleToDeleteUsage(v);
+                            setVehicleToDeleteUsage({
+                              licensePlate: v.licensePlate,
+                              factory: v.factory,
+                              engineOilLiters: v.engineOilLiters,
+                              engineOilCount: v.engineOilCount,
+                              adBlueLiters: v.adBlueLiters,
+                              adBlueCount: v.adBlueCount,
+                            });
                             setDeleteUsageError(null);
                           }}
+                          disabled={total === 0}
                           title={`ลบประวัติยอดการใช้ของรถ ${v.licensePlate} ประจำเดือน ${currentMonthData.monthName}`}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
